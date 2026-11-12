@@ -415,6 +415,8 @@
 
     return getHomeScreenSectionsMeta(apiClient).then(function (hssMeta) {
         var useHss = isUserUsingHomeScreenSections(hssMeta, userSettings);
+        try { localStorage.setItem('hss.bootSkeleton', hssMeta.ShowBootSkeleton === true && useHss ? '1' : '0'); } catch (e) { }
+        if (!useHss && window.HssBootSkeletonOff) { window.HssBootSkeletonOff(); }
         window.HssGateConfig = { enabled: hssMeta.RevealSectionsTogether === true, timeoutMs: hssMeta.RevealTimeoutMs > 0 ? hssMeta.RevealTimeoutMs : 1200, preloadImages: hssMeta.PreloadSectionImages === true };
         
         if (!useHss) {

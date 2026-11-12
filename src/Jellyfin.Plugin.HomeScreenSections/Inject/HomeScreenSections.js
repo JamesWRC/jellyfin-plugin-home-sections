@@ -1,3 +1,37 @@
+// Boot outline (PluginConfiguration.ShowBootSkeleton). This file is loaded in the first few hundred milliseconds, long before the
+// web app has started and created the first section, so it can paint an outline of the home page straight away. The option is
+// read from localStorage (written by the section loader when it reads /HomeScreen/Meta), so it applies from a user's second
+// visit. The outline is removed as soon as the real section placeholders exist, if the user does not use these sections, when
+// the user leaves the home page, or after 8 seconds at the latest.
+(function () {
+    try {
+        var hash = window.location.hash;
+        if (localStorage.getItem('hss.bootSkeleton') !== '1' || (hash !== '' && hash !== '#' && hash.indexOf('#/home') !== 0)) {
+            return;
+        }
+
+        var root = document.documentElement;
+        var observer = null;
+        var off = function () {
+            root.classList.remove('hss-boot');
+            if (observer) { observer.disconnect(); observer = null; }
+        };
+
+        window.HssBootSkeletonOff = off;
+        root.classList.add('hss-boot');
+        requestAnimationFrame(function () { performance.mark('hss-boot-painted'); });
+
+        observer = new MutationObserver(function () {
+            if (document.querySelector('.homeSectionsContainer > .verticalSection')) {
+                off();
+            }
+        });
+        observer.observe(root, { childList: true, subtree: true });
+        window.addEventListener('hashchange', function () { if (window.location.hash.indexOf('#/home') !== 0) { off(); } });
+        setTimeout(off, 8000);
+    } catch (e) { /* the outline is cosmetic */ }
+})();
+
 'use strict';
 
 if (typeof HomeScreenSectionsHandler == 'undefined') {

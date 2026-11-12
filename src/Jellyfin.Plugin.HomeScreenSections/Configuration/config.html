@@ -135,6 +135,11 @@
                                 </label>
                                 <div class="fieldDescription">Show placeholders while a page of sections loads, then show all of them at the same moment, instead of each section appearing (and moving the ones below it) as it arrives.</div>
                                 <label class="emby-checkbox-label">
+                                    <input id="chkShowBootSkeleton" type="checkbox" is="emby-checkbox" class="emby-checkbox">
+                                    <span>Show an outline while the home page starts</span>
+                                </label>
+                                <div class="fieldDescription">Paint an outline of the home page rows immediately when the page starts loading, instead of a blank page until the first section is created. Applies from each user's second visit.</div>
+                                <label class="emby-checkbox-label">
                                     <input id="chkPreloadSectionImages" type="checkbox" is="emby-checkbox" class="emby-checkbox">
                                     <span>Preload row images</span>
                                 </label>
@@ -1519,6 +1524,7 @@
                     RevealTimeoutMs: parseInt(document.querySelector('[data-id=numRevealTimeoutMs]').value) || 1200,
                     SectionCacheSeconds: parseInt(document.querySelector('[data-id=numSectionCacheSeconds]').value) || 0,
                     PreloadSectionImages: document.querySelector('#chkPreloadSectionImages').checked,
+                    ShowBootSkeleton: document.querySelector('#chkShowBootSkeleton').checked,
                     AllowUserOverride: document.querySelector('#globalAllowUserOverride').checked,
                     LibreTranslateUrl: document.querySelector('[data-id=txtLibreTranslateUrl]').value,
                     LibreTranslateApiKey: document.querySelector('[data-id=txtLibreTranslateApiKey]').value,
@@ -1580,6 +1586,7 @@
                         document.querySelector('[data-id=numRevealTimeoutMs]').value = config.RevealTimeoutMs;
                         document.querySelector('[data-id=numSectionCacheSeconds]').value = config.SectionCacheSeconds;
                         document.querySelector('#chkPreloadSectionImages').checked = config.PreloadSectionImages;
+                        document.querySelector('#chkShowBootSkeleton').checked = config.ShowBootSkeleton;
 
                         arrServiceConfigs.forEach(serviceConfig => {
                             loadArrConfig(serviceConfig, config);

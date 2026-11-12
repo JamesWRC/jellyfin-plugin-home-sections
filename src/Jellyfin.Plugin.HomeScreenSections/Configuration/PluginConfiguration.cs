@@ -32,6 +32,13 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         /// and no fade-in, when they are scrolled into view.
         /// </summary>
         public bool PreloadSectionImages { get; set; } = false;
+
+        /// <summary>
+        /// Paint an outline of the home page (rows of placeholder cards) the moment the page starts loading, instead of a blank
+        /// page until the web app has started and the first section is created. Takes effect from a user's second visit, because
+        /// the browser has to know about the option before the app has started.
+        /// </summary>
+        public bool ShowBootSkeleton { get; set; } = false;
         
         public bool AllowUserOverride { get; set; } = true;
 
