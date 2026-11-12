@@ -123,14 +123,14 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         {
             if (m_delegates.TryGetValue(key, out IHomeScreenSection? section))
             {
-                int cacheSeconds = HomeScreenSectionsPlugin.Instance?.Configuration?.SectionCacheSeconds ?? 0;
+                int cacheSeconds = Math.Clamp(HomeScreenSectionsPlugin.Instance?.Configuration?.SectionCacheSeconds ?? 0, 0, 3600);
 
                 if (cacheSeconds <= 0)
                 {
                     return section.GetResults(payload, queryCollection);
                 }
 
-                return m_resultCache.GetOrCompute(key, payload.UserId, queryCollection, cacheSeconds, () => section.GetResults(payload, queryCollection));
+                return m_resultCache.GetOrCompute(key, payload.UserId, queryCollection, cacheSeconds, section is PluginDefinedSection, () => section.GetResults(payload, queryCollection));
             }
 
             return new QueryResult<BaseItemDto>(Array.Empty<BaseItemDto>());

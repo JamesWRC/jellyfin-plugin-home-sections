@@ -1,4 +1,4 @@
-﻿﻿function test(elem, apiClient, user, userSettings, page = null) {
+﻿function test(elem, apiClient, user, userSettings, page = null) {
     function isHomePage() {
         var href = (location.href || "");
         var hash = (location.hash || "");

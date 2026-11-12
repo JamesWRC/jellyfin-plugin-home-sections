@@ -78,8 +78,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
             // in pages, newest first. The first time a show appears in that stream is its newest episode, so as soon as
             // we have collected the wanted number of shows, no later page can change the result.
             const int c_resultLimit = 16;
-            const int c_pageSize = 100;
-            const int c_maxPages = 50; // 5,000 episodes: a bound for libraries where most shows are hidden by the filters
+            const int c_pageSize = 250;
+            const int c_maxPages = 20; // 5,000 episodes: a bound for libraries where most shows are hidden by the filters
 
             DtoOptions pagingOptions = new DtoOptions(false)
             {
@@ -94,7 +94,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded
 
                 if (item is not Folder folder)
                 {
-                    folder = m_libraryManager.GetUserRootFolder();
+                    continue; // the previous code listed shows directly under the user's root folder, which has none
                 }
 
                 HashSet<Guid> seenInFolder = new();

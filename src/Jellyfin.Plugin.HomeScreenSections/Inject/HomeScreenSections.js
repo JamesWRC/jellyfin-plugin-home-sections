@@ -1,3 +1,5 @@
+'use strict';
+
 // Boot outline (PluginConfiguration.ShowBootSkeleton). This file is loaded in the first few hundred milliseconds, long before the
 // web app has started and created the first section, so it can paint an outline of the home page straight away. The option is
 // read from localStorage (written by the section loader when it reads /HomeScreen/Meta), so it applies from a user's second
@@ -21,18 +23,22 @@
         root.classList.add('hss-boot');
         requestAnimationFrame(function () { performance.mark('hss-boot-painted'); });
 
+        var queued = false;
         observer = new MutationObserver(function () {
-            if (document.querySelector('.homeSectionsContainer > .verticalSection')) {
-                off();
-            }
+            if (queued) { return; }
+            queued = true;
+            requestAnimationFrame(function () {
+                queued = false;
+                if (document.querySelector('.homeSectionsContainer > .verticalSection')) {
+                    off();
+                }
+            });
         });
         observer.observe(root, { childList: true, subtree: true });
         window.addEventListener('hashchange', function () { if (window.location.hash.indexOf('#/home') !== 0) { off(); } });
         setTimeout(off, 8000);
     } catch (e) { /* the outline is cosmetic */ }
 })();
-
-'use strict';
 
 if (typeof HomeScreenSectionsHandler == 'undefined') {
     const HomeScreenSectionsHandler = {
@@ -151,7 +157,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         },
         scan: function () {
             var config = window.HssGateConfig;
-            if (!config) {
+            if (!config || !document.querySelector('.homeSectionsContainer')) {
                 return;
             }
 
@@ -190,8 +196,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         // Fetch and decode the image, then put it on the card finished: no fade, no blurhash behind it.
         hydrate: function (card) {
             var url = card.getAttribute('data-src');
-            if (!url) {
-                return Promise.resolve();
+            if (!url || !card.isConnected) {
+                return Promise.resolve(); // nothing to load, or the home page was rebuilt and this card is gone
             }
 
             var image = new Image();
@@ -219,7 +225,9 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             };
 
             var loaded = image.decode ? image.decode() : new Promise(function (resolve, reject) { image.onload = resolve; image.onerror = reject; });
-            return loaded.then(finish, function () { /* leave this card to the lazy loader */ });
+            // a decode that never settles must not keep one of the few download slots forever
+            var guarded = Promise.race([loaded, new Promise(function (resolve) { setTimeout(resolve, 8000); })]);
+            return guarded.then(finish, function () { /* leave this card to the lazy loader */ });
         },
         enqueue: function (cards) {
             cards.forEach(function (card) {
@@ -256,13 +264,20 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 }
 
                 var release = function () {
-                    // one frame later, so the cards of the last section have been drawn before anything is shown
-                    requestAnimationFrame(function () {
+                    var done = false;
+                    var show = function () {
+                        if (done) { return; }
+                        done = true;
                         sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); });
                         if (preloadImages) {
                             HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
                         }
-                    });
+                    };
+
+                    // one frame later, so the cards of the last section have been drawn before anything is shown;
+                    // the timer covers a background tab, where animation frames do not run
+                    requestAnimationFrame(show);
+                    setTimeout(show, 300);
                 };
 
                 if (!preloadImages) {

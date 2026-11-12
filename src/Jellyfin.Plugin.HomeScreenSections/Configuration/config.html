@@ -146,7 +146,7 @@
                                 <div class="fieldDescription">Load the images of every row ahead of time so scrolling a row never shows blurred or empty cards. Cards in the first screen are ready before the sections are revealed; the rest load quietly in the background (more data is downloaded up front).</div>
                                 <div class="inputContainer">
                                     <input is="emby-input" type="number" data-id="numSectionCacheSeconds" label="Cache section results (seconds, 0 = off)" min="0" max="3600" />
-                                    <div class="fieldDescription">Reuse a user's section results when they open the home page again within this time. Results are dropped as soon as the user's watch data or the library changes. Seerr and upcoming sections are cached for at most 30 seconds.</div>
+                                    <div class="fieldDescription">Reuse a user's section results when they open the home page again within this time. Results are dropped as soon as the user's watch data or the library changes. Seerr, upcoming and Live TV sections are cached for at most 30 seconds. A change to a user's library access can take up to this long to show. Sections that choose items at random (Because You Watched, Genre, Studio, Decade, Hidden Gems, Watch Again) keep the same items until the cached result expires.</div>
                                 </div>
                                 <div class="inputContainer">
                                     <input is="emby-input" type="number" data-id="numRevealTimeoutMs" label="Reveal timeout (milliseconds)" min="200" max="10000" />
