@@ -10,6 +10,15 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         public bool LazyLoadEnabled { get; set; } = false;
 
         public int NumSectionsPerPage { get; set; } = 10;
+
+        /// <summary>
+        /// Keep every section of a page hidden behind a placeholder until they have all loaded (or <see cref="RevealTimeoutMs"/>
+        /// has passed), then show them together, instead of each section appearing and pushing the ones below it down.
+        /// </summary>
+        public bool RevealSectionsTogether { get; set; } = false;
+
+        /// <summary>How long to wait for a page of sections before showing whatever has loaded.</summary>
+        public int RevealTimeoutMs { get; set; } = 1200;
         
         public bool AllowUserOverride { get; set; } = true;
 

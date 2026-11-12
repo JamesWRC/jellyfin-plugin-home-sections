@@ -85,3 +85,61 @@ if (typeof TopTenSectionHandler == 'undefined') {
         TopTenSectionHandler.init();
     }, 50);
 }
+
+// Reveal-together gate (see PluginConfiguration.RevealSectionsTogether). Sections of a page are created hidden and each one
+// appears when its own request returns, which moves everything below it. While gated, a page's sections are shown as
+// fixed-height placeholders and are all released in the same frame once every one has finished, or after the timeout.
+if (typeof HomeScreenSectionsGate == 'undefined') {
+    const HomeScreenSectionsGate = {
+        tracked: new WeakSet(),
+        init: function () {
+            var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
+            new MutationObserver(function () { HomeScreenSectionsGate.scan(); })
+                .observe(document.body, { childList: true, subtree: true });
+        },
+        scan: function () {
+            var config = window.HssGateConfig;
+            if (!config || !config.enabled) {
+                return;
+            }
+
+            var pages = {};
+            document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                if (HomeScreenSectionsGate.tracked.has(section)) {
+                    return;
+                }
+
+                HomeScreenSectionsGate.tracked.add(section);
+                section.setAttribute('data-hss-gate', 'pending');
+                (pages[section.getAttribute('data-page')] = pages[section.getAttribute('data-page')] || []).push(section);
+            });
+
+            Object.keys(pages).forEach(function (page) {
+                HomeScreenSectionsGate.watch(pages[page], config.timeoutMs);
+            });
+        },
+        watch: function (sections, timeoutMs) {
+            var started = performance.now();
+
+            (function check() {
+                var finished = sections.every(function (section) {
+                    return !section.isConnected || section.getAttribute('data-hss-fetched') === '1';
+                });
+
+                if (finished || performance.now() - started >= timeoutMs) {
+                    // one frame later, so the cards of the last section have been drawn before anything is shown
+                    requestAnimationFrame(function () {
+                        sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); });
+                    });
+                    return;
+                }
+
+                setTimeout(check, 40);
+            })();
+        }
+    };
+
+    $(document).ready(function () {
+        HomeScreenSectionsGate.init();
+    });
+}

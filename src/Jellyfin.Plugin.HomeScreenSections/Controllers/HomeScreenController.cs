@@ -227,7 +227,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
                 Enabled = cfg.Enabled, 
                 AllowUserOverride = cfg.AllowUserOverride, 
                 PaginationEnabled = cfg.LazyLoadEnabled, 
-                NumResultsPerPage = cfg.NumSectionsPerPage
+                NumResultsPerPage = cfg.NumSectionsPerPage,
+                RevealSectionsTogether = cfg.RevealSectionsTogether,
+                RevealTimeoutMs = cfg.RevealTimeoutMs
             });
         }
 
