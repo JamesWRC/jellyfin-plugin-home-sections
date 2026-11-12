@@ -229,7 +229,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
                 PaginationEnabled = cfg.LazyLoadEnabled, 
                 NumResultsPerPage = cfg.NumSectionsPerPage,
                 RevealSectionsTogether = cfg.RevealSectionsTogether,
-                RevealTimeoutMs = cfg.RevealTimeoutMs
+                RevealTimeoutMs = cfg.RevealTimeoutMs,
+                PreloadSectionImages = cfg.PreloadSectionImages
             });
         }
 

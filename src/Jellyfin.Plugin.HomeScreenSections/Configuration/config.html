@@ -134,6 +134,15 @@
                                     <span>Reveal sections together</span>
                                 </label>
                                 <div class="fieldDescription">Show placeholders while a page of sections loads, then show all of them at the same moment, instead of each section appearing (and moving the ones below it) as it arrives.</div>
+                                <label class="emby-checkbox-label">
+                                    <input id="chkPreloadSectionImages" type="checkbox" is="emby-checkbox" class="emby-checkbox">
+                                    <span>Preload row images</span>
+                                </label>
+                                <div class="fieldDescription">Load the images of every row ahead of time so scrolling a row never shows blurred or empty cards. Cards in the first screen are ready before the sections are revealed; the rest load quietly in the background (more data is downloaded up front).</div>
+                                <div class="inputContainer">
+                                    <input is="emby-input" type="number" data-id="numSectionCacheSeconds" label="Cache section results (seconds, 0 = off)" min="0" max="3600" />
+                                    <div class="fieldDescription">Reuse a user's section results when they open the home page again within this time. Results are dropped as soon as the user's watch data or the library changes. Seerr and upcoming sections are cached for at most 30 seconds.</div>
+                                </div>
                                 <div class="inputContainer">
                                     <input is="emby-input" type="number" data-id="numRevealTimeoutMs" label="Reveal timeout (milliseconds)" min="200" max="10000" />
                                     <div class="fieldDescription">How long to wait for every section of a page before showing the ones that have loaded.</div>
@@ -1508,6 +1517,8 @@
                     NumSectionsPerPage: parseInt(document.querySelector('[data-id=numLazyLoadSections]').value),
                     RevealSectionsTogether: document.querySelector('#chkRevealSectionsTogether').checked,
                     RevealTimeoutMs: parseInt(document.querySelector('[data-id=numRevealTimeoutMs]').value) || 1200,
+                    SectionCacheSeconds: parseInt(document.querySelector('[data-id=numSectionCacheSeconds]').value) || 0,
+                    PreloadSectionImages: document.querySelector('#chkPreloadSectionImages').checked,
                     AllowUserOverride: document.querySelector('#globalAllowUserOverride').checked,
                     LibreTranslateUrl: document.querySelector('[data-id=txtLibreTranslateUrl]').value,
                     LibreTranslateApiKey: document.querySelector('[data-id=txtLibreTranslateApiKey]').value,
@@ -1567,6 +1578,8 @@
                         document.querySelector('[data-id=numLazyLoadSections]').value = config.NumSectionsPerPage;
                         document.querySelector('#chkRevealSectionsTogether').checked = config.RevealSectionsTogether;
                         document.querySelector('[data-id=numRevealTimeoutMs]').value = config.RevealTimeoutMs;
+                        document.querySelector('[data-id=numSectionCacheSeconds]').value = config.SectionCacheSeconds;
+                        document.querySelector('#chkPreloadSectionImages').checked = config.PreloadSectionImages;
 
                         arrServiceConfigs.forEach(serviceConfig => {
                             loadArrConfig(serviceConfig, config);

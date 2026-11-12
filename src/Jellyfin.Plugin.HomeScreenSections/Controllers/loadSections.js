@@ -415,7 +415,7 @@
 
     return getHomeScreenSectionsMeta(apiClient).then(function (hssMeta) {
         var useHss = isUserUsingHomeScreenSections(hssMeta, userSettings);
-        window.HssGateConfig = { enabled: hssMeta.RevealSectionsTogether === true, timeoutMs: hssMeta.RevealTimeoutMs > 0 ? hssMeta.RevealTimeoutMs : 1200 };
+        window.HssGateConfig = { enabled: hssMeta.RevealSectionsTogether === true, timeoutMs: hssMeta.RevealTimeoutMs > 0 ? hssMeta.RevealTimeoutMs : 1200, preloadImages: hssMeta.PreloadSectionImages === true };
         
         if (!useHss) {
             return _this.originalLoadSections(elem, apiClient, user, userSettings);

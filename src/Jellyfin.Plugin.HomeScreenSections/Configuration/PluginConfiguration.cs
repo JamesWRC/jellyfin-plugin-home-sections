@@ -19,6 +19,19 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
 
         /// <summary>How long to wait for a page of sections before showing whatever has loaded.</summary>
         public int RevealTimeoutMs { get; set; } = 1200;
+
+        /// <summary>
+        /// How long, in seconds, a user's section results may be reused when they open the home page again. 0 turns the cache
+        /// off. Results are also dropped as soon as the user's watch data or the library changes.
+        /// </summary>
+        public int SectionCacheSeconds { get; set; } = 0;
+
+        /// <summary>
+        /// Load the card images of every row ahead of time instead of when a card is scrolled near. Cards in the first screen are
+        /// ready before the sections are revealed; the rest are fetched in the background and shown finished, with no blurhash
+        /// and no fade-in, when they are scrolled into view.
+        /// </summary>
+        public bool PreloadSectionImages { get; set; } = false;
         
         public bool AllowUserOverride { get; set; } = true;
 
