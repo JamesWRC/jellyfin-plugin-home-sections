@@ -103,6 +103,39 @@
         if (sectionKey.startsWith("Upcoming")) {
             return createUpcomingCards;
         }
+
+        if (sectionKey.indexOf("Streaming_") === 0 || sectionKey === "ComingSoon" || sectionKey === "MyJellyseerrRequests") {
+            // Library titles are ordinary cards; titles the server does not have are request cards.
+            var mixedOpts = { gelato: sectionKey.indexOf("Streaming_") === 0, hideRequest: sectionKey === "MyJellyseerrRequests" };
+            return function (items) {
+                var html = '';
+                items.forEach(function (item) {
+                    if (item.ProviderIds && item.ProviderIds.HssRemote === '1') {
+                        html += createDiscoverCards([item], mixedOpts);
+                    } else {
+                        html += cardBuilder.getCardsHtml({
+                            items: [item],
+                            preferThumb: null,
+                            inheritThumb: !useEpisodeImages,
+                            shape: getShapeFn(enableOverflow),
+                            overlayText: false,
+                            showTitle: additionalSettings.DisplayTitleText,
+                            showParentTitle: additionalSettings.DisplayTitleText,
+                            lazy: true,
+                            showDetailsMenu: additionalSettings.ShowDetailsMenu,
+                            overlayPlayButton: true,
+                            context: "home",
+                            centerText: true,
+                            allowBottomPadding: false,
+                            cardLayout: false,
+                            showYear: true,
+                            lines: additionalSettings.DisplayTitleText ? 2 : 0
+                        });
+                    }
+                });
+                return html;
+            };
+        }
         
         if (additionalSettings.ViewMode === 'Small' && sectionKey === 'MyMedia') {
             // Currently Small is only supported by MyMedia so lets handle these items here
@@ -144,12 +177,13 @@
         }
     }
     
-    function createDiscoverCards(items) {
+    function createDiscoverCards(items, opts) {
+        opts = opts || {};
         var html = '';
         
         var index = 0;
         items.forEach(function (item) {
-            html += '<div class="card overflowPortraitCard card-hoverable card-withuserdata discover-card" data-index="' + index + '" data-tmdb-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
+            html += '<div class="card overflowPortraitCard card-hoverable card-withuserdata discover-card' + (opts.gelato ? ' hss-open-card' : '') + '" data-index="' + index + '" data-tmdb-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
             html += '   <div class="cardBox cardBox-bottompadded">';
             html += '       <div class="cardScalable discoverCard-' + escapeHtml(item.SourceType) + '">';
             html += '           <div class="cardPadder cardPadder-overflowPortrait lazy-hidden-children"></div>';
@@ -162,9 +196,11 @@
             html += '           <div class="cardOverlayContainer itemAction" data-action="link">';
             html += '               <a is="emby-linkbutton" target="_blank" href="' + escapeHtml(itemUrl) + '" class="cardImageContainer"  style="color: inherit; text-decoration: none;"></a>';
             html += '               <div class="cardOverlayButton-br flex">';
+            if (!opts.hideRequest) {
             html += '                   <button is="discover-requestbutton" type="button" data-action="none" class="discover-requestbutton cardOverlayButton cardOverlayButton-hover itemAction paper-icon-button-light emby-button" data-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
             html += '                       <span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover add" aria-hidden="true"></span>';
             html += '                   </button>';
+            }
             html += '               </div>';
             html += '           </div>';
             html += '       </div>';
@@ -184,7 +220,7 @@
             } else {
                 yearText += '<span class="material-icons" style="font-size: 14px; vertical-align: middle; color: #FFD700;">star</span> - • ';
             }
-            yearText += date.getFullYear();
+            yearText = item.ProviderIds.HssSubtitle ? escapeHtml(item.ProviderIds.HssSubtitle) : yearText + date.getFullYear();
             html += '               <a is="emby-linkbutton" style="color: inherit; text-decoration: none;" target="_blank" href="' + escapeHtml(itemUrl) + '" class="itemAction textActionButton" title="' + date.getFullYear() + '" data-action="link">' + yearText + '</a>';
             html += '           </bdi>';
             html += '       </div>';

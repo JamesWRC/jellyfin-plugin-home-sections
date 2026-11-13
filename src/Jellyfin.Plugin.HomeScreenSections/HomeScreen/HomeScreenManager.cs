@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections;
+using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Latest;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Persons;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded;
@@ -95,6 +96,12 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             
             RegisterResultsDelegate<GenreSection>();
             RegisterResultsDelegate<MyRequestsSection>();
+            RegisterResultsDelegate<NewToServerSection>();
+            RegisterResultsDelegate<ComingSoonSection>();
+            foreach (StreamingService service in StreamingRowSection.Catalogue)
+            {
+                RegisterResultsDelegate(ActivatorUtilities.CreateInstance<StreamingRowSection>(m_serviceProvider, service));
+            }
 
             RegisterResultsDelegate<DirectedBySection>();
             RegisterResultsDelegate<StarringSection>();
@@ -105,6 +112,46 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             RegisterResultsDelegate<FinishTheseCollectionsSection>();
 
             //RegisterResultsDelegate<TopTenSection>();
+
+            StartRowsWarmLoop();
+        }
+
+        /// <summary>
+        /// Keeps the global Seerr lists (streaming services, coming soon) and the library TMDB map fresh in the background,
+        /// so a page load never waits on Seerr or TMDB.
+        /// </summary>
+        private void StartRowsWarmLoop()
+        {
+            Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                SeerrRowsService rows = m_serviceProvider.GetRequiredService<SeerrRowsService>();
+                while (true)
+                {
+                    try
+                    {
+                        rows.WarmMap();
+                        if (!string.IsNullOrEmpty(HomeScreenSectionsPlugin.Instance?.Configuration?.JellyseerrUrl))
+                        {
+                            var coming = (ComingSoonSection)m_delegates["ComingSoon"];
+                            var (cKey, cFetch) = coming.List();
+                            rows.Warm(cKey, TimeSpan.FromHours(6), cFetch);
+
+                            foreach (StreamingRowSection streaming in m_delegates.Values.OfType<StreamingRowSection>())
+                            {
+                                var (key, fetch) = streaming.ListFor(streaming.AdminRegion(), streaming.AdminKind());
+                                rows.Warm(key, TimeSpan.FromHours(24), fetch);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        m_logger.LogWarning("Rows warm-up failed: {Message}", ex.Message);
+                    }
+
+                    await Task.Delay(TimeSpan.FromMinutes(30));
+                }
+            });
         }
 
         /// <inheritdoc/>

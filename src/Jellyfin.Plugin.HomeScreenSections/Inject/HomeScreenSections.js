@@ -301,3 +301,33 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         HomeScreenSectionsGate.init();
     });
 }
+
+// Streaming rows: a title the server does not have opens through Gelato (which adds it and streams it), where the
+// server allows this user; otherwise it falls back to the request page. Library titles never reach this handler.
+(function () {
+    if (window.__hssOpenCard) { return; }
+    window.__hssOpenCard = true;
+    document.addEventListener('click', function (ev) {
+        var card = ev.target && ev.target.closest ? ev.target.closest('.hss-open-card') : null;
+        if (!card || ev.target.closest('.discover-requestbutton')) { return; }
+        if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey) { return; }
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (card.getAttribute('data-hss-busy')) { return; }
+        var link = card.querySelector('a[href]');
+        var fallback = link ? link.href : null;
+        var type = card.getAttribute('data-media-type') === 'tv' ? 'tv' : 'movie';
+        var id = card.getAttribute('data-tmdb-id');
+        var done = function () { card.style.opacity = ''; card.removeAttribute('data-hss-busy'); };
+        var fall = function () { done(); if (fallback) { window.open(fallback, '_blank', 'noopener'); } };
+        card.setAttribute('data-hss-busy', '1');
+        card.style.opacity = '.6';
+        window.ApiClient.ajax({ url: window.ApiClient.getUrl('gelato/open/' + type + '/' + encodeURIComponent(id)), type: 'POST', dataType: 'json' })
+            .then(function (r) {
+                if (r && r.Id) {
+                    done();
+                    window.location.hash = '#/details?id=' + r.Id + '&serverId=' + window.ApiClient.serverId();
+                } else { fall(); }
+            }, fall);
+    }, true);
+})();
