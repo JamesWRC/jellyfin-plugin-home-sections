@@ -143,6 +143,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         active: 0,
         maxActive: 6,
         scanQueued: false,
+        pending: new Set(),
+        releasedOnce: false,
         init: function () {
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             new MutationObserver(function () {
@@ -154,6 +156,26 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     });
                 }
             }).observe(document.body, { childList: true, subtree: true });
+
+            // Safety net. A section held by the gate must never stay hidden: the page can wake up late (a phone's web view
+            // pauses timers and animation frames while it is in the background or mid-transition and runs them again on
+            // the first touch), so anything held for too long is released, on a timer and on every sign of life.
+            var wake = function () { HomeScreenSectionsGate.releaseStale(1500); };
+            setInterval(function () { HomeScreenSectionsGate.releaseStale(2500); }, 500);
+            ['touchstart', 'touchmove', 'scroll', 'focus', 'pageshow', 'visibilitychange', 'resize', 'hashchange'].forEach(function (name) {
+                window.addEventListener(name, wake, { passive: true });
+            });
+            document.addEventListener('visibilitychange', wake);
+        },
+        releaseStale: function (maxAgeMs) {
+            var gate = HomeScreenSectionsGate;
+            var now = performance.now();
+            gate.pending.forEach(function (section) {
+                if (!section.isConnected || now - section.__hssSince > maxAgeMs) {
+                    section.removeAttribute('data-hss-gate');
+                    gate.pending.delete(section);
+                }
+            });
         },
         scan: function () {
             var config = window.HssGateConfig;
@@ -170,6 +192,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 
                     HomeScreenSectionsGate.tracked.add(section);
                     section.setAttribute('data-hss-gate', 'pending');
+                    section.__hssSince = performance.now();
+                    HomeScreenSectionsGate.pending.add(section);
                     (pages[section.getAttribute('data-page')] = pages[section.getAttribute('data-page')] || []).push(section);
                 });
 
@@ -251,6 +275,11 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         },
         watch: function (sections, timeoutMs, preloadImages) {
             var started = performance.now();
+            // Only the first home page of a session is held for all its rows. Coming back to the home page (the sections are
+            // rebuilt, but the server has them cached) shows them as they arrive, after a short wait at most.
+            var isReturn = HomeScreenSectionsGate.releasedOnce;
+            var waitImages = preloadImages && !isReturn;
+            if (isReturn) { timeoutMs = Math.min(timeoutMs, 400); }
 
             (function check() {
                 var finished = sections.every(function (section) {
@@ -268,7 +297,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     var show = function () {
                         if (done) { return; }
                         done = true;
-                        sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); });
+                        sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); HomeScreenSectionsGate.pending.delete(section); });
+                        HomeScreenSectionsGate.releasedOnce = true;
                         if (preloadImages) {
                             HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
                         }
@@ -277,10 +307,10 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     // one frame later, so the cards of the last section have been drawn before anything is shown;
                     // the timer covers a background tab, where animation frames do not run
                     requestAnimationFrame(show);
-                    setTimeout(show, 300);
+                    setTimeout(show, 60);
                 };
 
-                if (!preloadImages) {
+                if (!waitImages) {
                     release();
                     return;
                 }
