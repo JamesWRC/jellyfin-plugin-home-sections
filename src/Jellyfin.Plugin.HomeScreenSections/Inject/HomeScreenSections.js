@@ -372,7 +372,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.7';
+    var BUILD = 'inject-3.0.5.10';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
@@ -388,6 +388,36 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 (s.classList.contains('hide') ? 'H' : '') + ':h' + Math.round(r.height) + ':c' + s.querySelectorAll('.card').length;
         }).join(' ');
     }
+
+    // What is on screen: the element on top at several heights, and how the first row and card are styled. Told apart from
+    // "the rows are not in the page" (the section list above) when the page looks blank on a device.
+    function probe() {
+        try {
+            var out = [];
+            var w = window.innerWidth, h = window.innerHeight;
+            [0.2, 0.35, 0.5, 0.65, 0.8].forEach(function (f) {
+                var y = Math.round(h * f);
+                var el = document.elementFromPoint(w / 2, y);
+                if (!el) { out.push(y + ':none'); return; }
+                var cs = getComputedStyle(el);
+                var cls = typeof el.className === 'string' ? el.className.split(' ').slice(0, 3).join('.') : '';
+                out.push(y + ':' + el.tagName.toLowerCase() + '.' + cls + ' o' + cs.opacity + ' v' + cs.visibility.charAt(0) + ' bg' + cs.backgroundColor.replace(/ /g, ''));
+            });
+            var sec = document.querySelector('.homeSectionsContainer > .verticalSection:not(.hide)');
+            if (sec) {
+                var c = getComputedStyle(sec);
+                out.push('sec0 o' + c.opacity + ' v' + c.visibility + ' d' + c.display + ' tr' + c.transform + ' top' + Math.round(sec.getBoundingClientRect().top));
+            }
+            var card = document.querySelector('.homeSectionsContainer .card');
+            if (card) {
+                var r = card.getBoundingClientRect(), ci = card.querySelector('.cardImageContainer'), cc = ci ? getComputedStyle(ci) : null;
+                out.push('card0 ' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + 'x' + Math.round(r.height) +
+                    (ci ? ' ds' + (ci.getAttribute('data-src') ? 1 : 0) + ' cls' + ci.className.split(' ').filter(function (x) { return /lazy|fade/.test(x); }).join('/') + ' bi' + (cc.backgroundImage !== 'none' ? 1 : 0) + ' o' + cc.opacity : ''));
+            }
+            out.push('scrollY' + Math.round(window.scrollY) + ' docH' + document.documentElement.scrollHeight + ' ih' + h + ' bodybg' + getComputedStyle(document.body).backgroundColor.replace(/ /g, ''));
+            return out.join(' | ');
+        } catch (e) { return 'probe-error ' + e; }
+    }
     function flush() {
         if (!enabled || buf.length === 0 || !window.ApiClient || !window.ApiClient.accessToken) { return; }
         var lines = buf.splice(0, 60);
@@ -402,7 +432,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             if (buf.length < 300) { buf.push(stamp() + 'ms ' + ev + (data ? ' ' + (typeof data === 'string' ? data : JSON.stringify(data)) : '')); }
         },
         snapshot: function (tag) {
-            diag.log(tag, 'vis=' + document.visibilityState + ' hash=' + location.hash.slice(0, 18) + ' once=' + (window.HomeScreenSectionsGate ? '' : '') + ' secs=[' + sections() + ']');
+            diag.log(tag, 'vis=' + document.visibilityState + ' hash=' + location.hash.slice(0, 18) + ' once=' + (window.HomeScreenSectionsGate ? '' : '') + ' secs=[' + sections() + '] PROBE ' + probe());
         },
         enable: function (on) { enabled = on === true; if (enabled) { diag.log('enabled', 'ua=' + navigator.userAgent.slice(0, 80)); } }
     };

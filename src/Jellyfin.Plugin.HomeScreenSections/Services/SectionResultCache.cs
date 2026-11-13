@@ -160,6 +160,13 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
                 return;
             }
 
+            // Remote items (Gelato stubs and their stream entries, which Gelato removes and re-adds whenever a title is opened) are
+            // not media on this server: no row lists them.
+            if (e.Item.LocationType == MediaBrowser.Model.Entities.LocationType.Remote)
+            {
+                return;
+            }
+
             Interlocked.Increment(ref m_libraryGeneration);
         }
 
