@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.HomeScreenSections.Library;
+using Jellyfin.Plugin.HomeScreenSections.Services;
 using Jellyfin.Plugin.HomeScreenSections.Model.Dto;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -48,7 +49,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows
                 return new QueryResult<BaseItemDto>();
             }
 
-            DtoOptions paging = new DtoOptions(false) { EnableImages = false };
+            DtoOptions paging = new DtoOptions(false) { EnableImages = false, Fields = new[] { ItemFields.Path } };
             List<BaseItem> picked = new();
             HashSet<Guid> seen = new();
 
@@ -69,7 +70,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows
 
                 foreach (BaseItem item in batch)
                 {
-                    if (item.Path != null && item.Path.Contains("/gelato", StringComparison.OrdinalIgnoreCase))
+                    if (SeerrRowsService.IsStub(item))
                     {
                         continue;
                     }
@@ -78,6 +79,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows
                     BaseItem? target = item is Episode { SeriesId: var seriesId }
                         ? (seriesId == Guid.Empty ? null : m_library.GetItemById(seriesId))
                         : m_library.GetItemById(item.Id);
+                    if (target != null && SeerrRowsService.IsStub(target))
+                    {
+                        continue;
+                    }
 
                     if (target != null && seen.Add(target.Id))
                     {

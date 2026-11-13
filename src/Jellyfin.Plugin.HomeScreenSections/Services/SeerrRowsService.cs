@@ -363,9 +363,14 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             }
         }
 
-        /// <summary>A Gelato stub (no file of its own): real media is preferred over one when both exist.</summary>
-        private static bool IsStub(BaseItem item) =>
-            item.Path != null && item.Path.Contains("/gelato", StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// A Gelato stub: a title with no file of its own (path <c>gelato://stub/tmdb:ID</c>, location type Remote). Real media
+        /// is preferred over one when both exist, and stubs are not "new to the server".
+        /// </summary>
+        public static bool IsStub(BaseItem item) =>
+            item.LocationType == LocationType.Remote
+            || (item.Path != null && (item.Path.StartsWith("gelato:", StringComparison.OrdinalIgnoreCase)
+                                      || item.Path.Contains("/gelato", StringComparison.OrdinalIgnoreCase)));
 
         private void EnsureMap()
         {
