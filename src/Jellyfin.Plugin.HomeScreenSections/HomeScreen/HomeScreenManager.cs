@@ -149,7 +149,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
                         m_logger.LogWarning("Rows warm-up failed: {Message}", ex.Message);
                     }
 
-                    await Task.Delay(TimeSpan.FromMinutes(30));
+                    await Task.Delay(rows.MapReady ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(1));
                 }
             });
         }

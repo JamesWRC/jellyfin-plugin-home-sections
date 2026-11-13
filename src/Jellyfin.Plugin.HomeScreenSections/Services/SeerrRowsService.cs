@@ -338,8 +338,17 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
                 }
 
                 m_map = map.ToDictionary(x => x.Key, x => x.Value.OrderBy(v => v.Stub).Select(v => v.Id).Take(4).ToArray());
-                m_mapBuilt = DateTime.UtcNow;
-                m_dirty = false;
+                if (m_map.Count == 0)
+                {
+                    // Built before the library had loaded (right after start): try again in about a minute.
+                    m_mapBuilt = DateTime.UtcNow - TimeSpan.FromMinutes(4);
+                    m_dirty = true;
+                }
+                else
+                {
+                    m_mapBuilt = DateTime.UtcNow;
+                    m_dirty = false;
+                }
                 m_logger.LogInformation("Library TMDB map: {Count} titles in {Ms} ms", m_map.Count, (int)(DateTime.UtcNow - started).TotalMilliseconds);
             }
             catch (Exception ex)
@@ -420,5 +429,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
         }
 
         public void WarmMap() => EnsureMap();
+
+        public bool MapReady => m_map.Count > 0;
     }
 }
