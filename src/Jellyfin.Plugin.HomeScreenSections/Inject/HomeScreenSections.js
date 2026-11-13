@@ -372,7 +372,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.11';
+    var BUILD = 'inject-3.0.5.12';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
@@ -391,6 +391,49 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 
     // What is on screen: the element on top at several heights, and how the first row and card are styled. Told apart from
     // "the rows are not in the page" (the section list above) when the page looks blank on a device.
+
+    // Is the browser actually drawing frames? A black page whose elements are all present and drawable means drawing has stalled:
+    // animation frames stop arriving (they are tied to the screen refresh) and timers drift. Measured each tick and kept for the next snapshot.
+    var liveness = 'raf=? drift=?';
+    function measureLiveness() {
+        var t = performance.now();
+        var rafAt = -1;
+        var expected = t + 250;
+        if (window.requestAnimationFrame) { requestAnimationFrame(function () { rafAt = Math.round(performance.now() - t); }); }
+        setTimeout(function () {
+            var drift = Math.round(performance.now() - expected);
+            liveness = 'raf=' + (rafAt >= 0 ? rafAt + 'ms' : 'STALLED') + ' drift=' + drift + 'ms';
+        }, 250);
+    }
+    // Page animations (jellyfin-web fades pages in and out with them): a paused one, or one still at its start, keeps a page invisible.
+    function animations() {
+        try {
+            if (!document.getAnimations) { return 'n/a'; }
+            var list = document.getAnimations();
+            var shown = list.filter(function (a) { return a.playState !== 'finished'; }).slice(0, 6).map(function (a) {
+                var el = a.effect && a.effect.target;
+                var cls = el && typeof el.className === 'string' ? el.className.split(' ').slice(0, 2).join('.') : '';
+                return a.playState + '@' + Math.round(a.currentTime || 0) + ':' + (el ? el.tagName.toLowerCase() : '?') + '.' + cls;
+            });
+            return list.length + ' total [' + shown.join(', ') + ']';
+        } catch (e) { return 'err'; }
+    }
+    // the page's ancestors that are not plainly visible (opacity, transform, visibility, display)
+    function ancestors() {
+        try {
+            var out = [];
+            var e = document.querySelector('.homeSectionsContainer');
+            while (e && e !== document.documentElement) {
+                var cs = getComputedStyle(e);
+                if (cs.opacity !== '1' || cs.visibility !== 'visible' || cs.display === 'none' || (cs.transform && cs.transform !== 'none') || cs.contentVisibility === 'hidden') {
+                    var cls = typeof e.className === 'string' ? e.className.split(' ').slice(0, 2).join('.') : '';
+                    out.push(e.tagName.toLowerCase() + '.' + cls + ' o' + cs.opacity + ' v' + cs.visibility.charAt(0) + ' d' + cs.display + ' tr' + (cs.transform || '').slice(0, 24));
+                }
+                e = e.parentElement;
+            }
+            return out.length ? out.join(' < ') : 'plain';
+        } catch (e2) { return 'err'; }
+    }
     function probe() {
         try {
             var out = [];
@@ -414,6 +457,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 out.push('card0 ' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + 'x' + Math.round(r.height) +
                     (ci ? ' ds' + (ci.getAttribute('data-src') ? 1 : 0) + ' cls' + ci.className.split(' ').filter(function (x) { return /lazy|fade/.test(x); }).join('/') + ' bi' + (cc.backgroundImage !== 'none' ? 1 : 0) + ' o' + cc.opacity : ''));
             }
+            out.push('LIVE ' + liveness + ' anims ' + animations() + ' anc ' + ancestors());
             out.push('scrollY' + Math.round(window.scrollY) + ' docH' + document.documentElement.scrollHeight + ' ih' + h + ' bodybg' + getComputedStyle(document.body).backgroundColor.replace(/ /g, ''));
             return out.join(' | ');
         } catch (e) { return 'probe-error ' + e; }
@@ -443,6 +487,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             var n = performance.now();
             if (lastEv[name] && n - lastEv[name] < (name === 'scroll' || name === 'touchstart' ? 4000 : 0)) { return; }
             lastEv[name] = n;
+            measureLiveness();
             diag.snapshot('ev:' + name);
             if (name === 'pagehide' || name === 'visibilitychange') { flush(); }
         }, { passive: true, capture: true });
@@ -454,6 +499,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         var container = document.querySelector('.homeSectionsContainer');
         if (!container || container.offsetParent === null) { return; }
         var open = container.querySelector('[data-hss-gate="pending"], .verticalSection:not([data-hss-fetched="1"])');
+        measureLiveness();
         if (open) { ticks++; diag.snapshot('tick'); }
     }, 2000);
     setInterval(flush, 3000);
