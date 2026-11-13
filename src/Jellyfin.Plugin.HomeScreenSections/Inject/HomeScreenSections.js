@@ -183,7 +183,9 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 return;
             }
 
-            if (config.enabled) {
+            // The reveal-together hold is for the first home page of a session only. Coming back to the home page shows each row as
+            // soon as it arrives (the server has them cached): holding it again left the page blank for about two seconds.
+            if (config.enabled && !HomeScreenSectionsGate.releasedOnce) {
                 var pages = {};
                 document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
                     if (HomeScreenSectionsGate.tracked.has(section)) {
