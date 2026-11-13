@@ -69,7 +69,7 @@
         }));
     }
 
-    function getHomeScreenSectionFetchFn(serverId, sectionInfo, serverConnections, _userSettings) {
+    function getHomeScreenSectionFetchFn(serverId, sectionInfo, serverConnections, _userSettings, sectionElem) {
         return function() {
             var __userSettings = _userSettings;
             
@@ -89,7 +89,9 @@
             }
             
             var getUrl = apiClient.getUrl("HomeScreen/Section/" + sectionInfo.Section, queryParams);
-            return apiClient.getJSON(getUrl);
+            // Tell the reveal gate (Inject/HomeScreenSections.js) that this section has finished, whether or not it had items.
+            var markFetched = function () { if (sectionElem && sectionElem.setAttribute) { sectionElem.setAttribute('data-hss-fetched', '1'); } };
+            return apiClient.getJSON(getUrl).then(function (result) { markFetched(); return result; }, function (error) { markFetched(); throw error; });
         }
     }
     
@@ -100,6 +102,39 @@
         
         if (sectionKey.startsWith("Upcoming")) {
             return createUpcomingCards;
+        }
+
+        if (sectionKey.indexOf("Streaming_") === 0 || sectionKey === "ComingSoon" || sectionKey === "MyJellyseerrRequests") {
+            // Library titles are ordinary cards; titles the server does not have are request cards.
+            var mixedOpts = { gelato: sectionKey.indexOf("Streaming_") === 0, hideRequest: sectionKey === "MyJellyseerrRequests" };
+            return function (items) {
+                var html = '';
+                items.forEach(function (item) {
+                    if (item.ProviderIds && item.ProviderIds.HssRemote === '1') {
+                        html += createDiscoverCards([item], mixedOpts);
+                    } else {
+                        html += cardBuilder.getCardsHtml({
+                            items: [item],
+                            preferThumb: null,
+                            inheritThumb: !useEpisodeImages,
+                            shape: getShapeFn(enableOverflow),
+                            overlayText: false,
+                            showTitle: additionalSettings.DisplayTitleText,
+                            showParentTitle: additionalSettings.DisplayTitleText,
+                            lazy: true,
+                            showDetailsMenu: additionalSettings.ShowDetailsMenu,
+                            overlayPlayButton: true,
+                            context: "home",
+                            centerText: true,
+                            allowBottomPadding: false,
+                            cardLayout: false,
+                            showYear: true,
+                            lines: additionalSettings.DisplayTitleText ? 2 : 0
+                        });
+                    }
+                });
+                return html;
+            };
         }
         
         if (additionalSettings.ViewMode === 'Small' && sectionKey === 'MyMedia') {
@@ -142,12 +177,13 @@
         }
     }
     
-    function createDiscoverCards(items) {
+    function createDiscoverCards(items, opts) {
+        opts = opts || {};
         var html = '';
         
         var index = 0;
         items.forEach(function (item) {
-            html += '<div class="card overflowPortraitCard card-hoverable card-withuserdata discover-card" data-index="' + index + '" data-tmdb-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
+            html += '<div class="card overflowPortraitCard card-hoverable card-withuserdata discover-card' + (opts.gelato ? ' hss-open-card' : '') + '" data-index="' + index + '" data-tmdb-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
             html += '   <div class="cardBox cardBox-bottompadded">';
             html += '       <div class="cardScalable discoverCard-' + escapeHtml(item.SourceType) + '">';
             html += '           <div class="cardPadder cardPadder-overflowPortrait lazy-hidden-children"></div>';
@@ -160,9 +196,11 @@
             html += '           <div class="cardOverlayContainer itemAction" data-action="link">';
             html += '               <a is="emby-linkbutton" target="_blank" href="' + escapeHtml(itemUrl) + '" class="cardImageContainer"  style="color: inherit; text-decoration: none;"></a>';
             html += '               <div class="cardOverlayButton-br flex">';
+            if (!opts.hideRequest) {
             html += '                   <button is="discover-requestbutton" type="button" data-action="none" class="discover-requestbutton cardOverlayButton cardOverlayButton-hover itemAction paper-icon-button-light emby-button" data-id="' + escapeHtml(item.ProviderIds.Jellyseerr) + '" data-media-type="' + escapeHtml(item.SourceType) + '">';
             html += '                       <span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover add" aria-hidden="true"></span>';
             html += '                   </button>';
+            }
             html += '               </div>';
             html += '           </div>';
             html += '       </div>';
@@ -182,7 +220,7 @@
             } else {
                 yearText += '<span class="material-icons" style="font-size: 14px; vertical-align: middle; color: #FFD700;">star</span> - • ';
             }
-            yearText += date.getFullYear();
+            yearText = item.ProviderIds.HssSubtitle ? escapeHtml(item.ProviderIds.HssSubtitle) : yearText + date.getFullYear();
             html += '               <a is="emby-linkbutton" style="color: inherit; text-decoration: none;" target="_blank" href="' + escapeHtml(itemUrl) + '" class="itemAction textActionButton" title="' + date.getFullYear() + '" data-action="link">' + yearText + '</a>';
             html += '           </bdi>';
             html += '       </div>';
@@ -354,7 +392,7 @@
                     ShowDetailsMenu: sectionInfo.ShowDetailsMenu
                 }
                 
-                itemsContainer.fetchData = getHomeScreenSectionFetchFn(apiClient.serverId(), sectionInfo, u.A, userSettings);
+                itemsContainer.fetchData = getHomeScreenSectionFetchFn(apiClient.serverId(), sectionInfo, u.A, userSettings, elem);
                 
                 var shapeBuilder = {{shapebuilder_hook}};
                 
@@ -413,6 +451,10 @@
 
     return getHomeScreenSectionsMeta(apiClient).then(function (hssMeta) {
         var useHss = isUserUsingHomeScreenSections(hssMeta, userSettings);
+        try { localStorage.setItem('hss.bootSkeleton', hssMeta.ShowBootSkeleton === true && useHss ? '1' : '0'); } catch (e) { }
+        if (!useHss && window.HssBootSkeletonOff) { window.HssBootSkeletonOff(); }
+        if (window.HssDiag) { window.HssDiag.enable(hssMeta.ClientDiagnostics === true); window.HssDiag.log('meta', 'use=' + useHss + ' page=' + page); }
+        window.HssGateConfig = { enabled: hssMeta.RevealSectionsTogether === true, timeoutMs: hssMeta.RevealTimeoutMs > 0 ? hssMeta.RevealTimeoutMs : 1200, preloadImages: hssMeta.PreloadSectionImages === true };
         
         if (!useHss) {
             return _this.originalLoadSections(elem, apiClient, user, userSettings);
@@ -509,7 +551,9 @@
 
         var getSectionsUrl = apiClient.getUrl("HomeScreen/Sections", getSectionsData);
 
+        if (window.HssDiag) { window.HssDiag.log('sections-request', 'page=' + window.HssPageMeta.Page); }
         return apiClient.getJSON(getSectionsUrl).then(function (response) {
+            if (window.HssDiag) { window.HssDiag.log('sections-response', 'n=' + response.TotalRecordCount); }
             if (response.TotalRecordCount === 0 && window.HssPageMeta.Page > 1) {
                 window.HssPageMeta.Finished = true;
                 // Just a do nothing function
@@ -616,6 +660,7 @@
                                         var spinnerHtml = '<div id="hssLoadingIndicator" class="verticalSection" style="order: 2147000000;margin-top:60px;margin-bottom:60px;display:none;"><div dir="ltr" class="docspinner mdl-spinner mdlSpinnerActive" style="position: relative;top: 0;left: calc(50vw - 1.5em);"><div class="mdl-spinner__layer mdl-spinner__layer-1"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-2"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-3"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-4"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div></div></div>';
                                         
                                         elem.innerHTML = spinnerHtml + var44_3;
+                                        if (window.HssDiag) { window.HssDiag.snapshot('rendered-placeholders'); }
                                     }
                                     
                                     if (!elem.classList.contains("homeSectionsContainer")) {

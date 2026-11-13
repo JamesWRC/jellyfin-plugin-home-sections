@@ -21,6 +21,7 @@ using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -41,6 +42,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
         private readonly HomeScreenSectionService m_homeScreenSectionService;
         private readonly ImageCacheService m_imageCacheService;
         private readonly IUserManager m_userManager;
+        private readonly Microsoft.Extensions.Logging.ILogger<HomeScreenController> m_logger;
+        private static readonly ConcurrentDictionary<string, (DateTime Start, int Count)> s_clientLogUse = new();
 
         public HomeScreenController(
             IHomeScreenManager homeScreenManager,
@@ -49,8 +52,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
             IApplicationPaths applicationPaths,
             HomeScreenSectionService homeScreenSectionService,
             ImageCacheService imageCacheService,
-            IUserManager userManager)
+            IUserManager userManager,
+            Microsoft.Extensions.Logging.ILogger<HomeScreenController> logger)
         {
+            m_logger = logger;
             m_homeScreenManager = homeScreenManager;
             m_displayPreferencesManager = displayPreferencesManager;
             m_serverApplicationHost = serverApplicationHost;
@@ -227,8 +232,49 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
                 Enabled = cfg.Enabled, 
                 AllowUserOverride = cfg.AllowUserOverride, 
                 PaginationEnabled = cfg.LazyLoadEnabled, 
-                NumResultsPerPage = cfg.NumSectionsPerPage
+                NumResultsPerPage = cfg.NumSectionsPerPage,
+                RevealSectionsTogether = cfg.RevealSectionsTogether,
+                RevealTimeoutMs = Math.Clamp(cfg.RevealTimeoutMs, 200, 10000),
+                PreloadSectionImages = cfg.PreloadSectionImages,
+                ShowBootSkeleton = cfg.ShowBootSkeleton,
+                ClientDiagnostics = cfg.ClientDiagnostics
             });
+        }
+
+        public class ClientLogPayload
+        {
+            public string? Build { get; set; }
+            public string? Ua { get; set; }
+            public string[]? Events { get; set; }
+        }
+
+        /// <summary>Receives the browser's page-build trace when <c>ClientDiagnostics</c> is on. Capped per user and per line.</summary>
+        [HttpPost("ClientLog")]
+        [Authorize]
+        public ActionResult ClientLog([FromBody] ClientLogPayload payload)
+        {
+            if (HomeScreenSectionsPlugin.Instance?.Configuration?.ClientDiagnostics != true || payload?.Events == null)
+            {
+                return NoContent();
+            }
+
+            string who = User.Identity?.Name ?? "?";
+            DateTime now = DateTime.UtcNow;
+            var use = s_clientLogUse.AddOrUpdate(who, _ => (now, 1), (_, old) => now - old.Start > TimeSpan.FromMinutes(1) ? (now, 1) : (old.Start, old.Count + 1));
+            if (use.Count > 30)
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
+            string ua = (payload.Ua ?? string.Empty);
+            ua = ua.Length > 140 ? ua[..140] : ua;
+            foreach (string line in payload.Events.Take(60))
+            {
+                string clean = new string((line ?? string.Empty).Where(c => !char.IsControl(c)).ToArray());
+                m_logger.LogInformation("[hss-client] {User} build={Build} {Line} | {Ua}", who, payload.Build, clean.Length > 600 ? clean[..600] : clean, ua);
+            }
+
+            return NoContent();
         }
 
         [HttpGet("Ready")]
