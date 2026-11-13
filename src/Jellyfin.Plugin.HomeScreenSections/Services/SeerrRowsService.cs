@@ -412,7 +412,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
                 ItemIds = all,
                 Recursive = true,
                 EnableTotalRecordCount = false,
-                DtoOptions = new DtoOptions(false) { EnableImages = false }
+                // Images stay on: items fetched without them have no poster when they are turned into DTOs.
+                DtoOptions = new DtoOptions(false) { EnableImages = true }
             }).ToDictionary(x => x.Id);
 
             foreach (var kv in wanted)

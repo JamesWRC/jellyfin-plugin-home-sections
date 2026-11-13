@@ -74,11 +74,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows
                         continue;
                     }
 
-                    BaseItem? target = item;
-                    if (item is Episode { SeriesId: var seriesId })
-                    {
-                        target = seriesId == Guid.Empty ? null : m_library.GetItemById(seriesId);
-                    }
+                    // The paged query skips images, so a title is read again by id (16 at most) to get its posters.
+                    BaseItem? target = item is Episode { SeriesId: var seriesId }
+                        ? (seriesId == Guid.Empty ? null : m_library.GetItemById(seriesId))
+                        : m_library.GetItemById(item.Id);
 
                     if (target != null && seen.Add(target.Id))
                     {
