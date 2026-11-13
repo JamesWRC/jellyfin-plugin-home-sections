@@ -172,12 +172,29 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             {
                 int cacheSeconds = Math.Clamp(HomeScreenSectionsPlugin.Instance?.Configuration?.SectionCacheSeconds ?? 0, 0, 3600);
 
-                if (cacheSeconds <= 0)
+                // Sections that take a second or more are logged with how long the work itself took (as opposed to waiting for a
+                // thread or the database), to tell a heavy section from a busy server.
+                Stopwatch requested = Stopwatch.StartNew();
+                long computeMs = -1;
+                Func<QueryResult<BaseItemDto>> compute = () =>
                 {
-                    return section.GetResults(payload, queryCollection);
+                    Stopwatch work = Stopwatch.StartNew();
+                    QueryResult<BaseItemDto> result = section.GetResults(payload, queryCollection);
+                    computeMs = work.ElapsedMilliseconds;
+                    return result;
+                };
+
+                QueryResult<BaseItemDto> answer = cacheSeconds <= 0
+                    ? compute()
+                    : m_resultCache.GetOrCompute(key, payload.UserId, queryCollection, cacheSeconds, section is PluginDefinedSection, compute);
+
+                if (requested.ElapsedMilliseconds >= 1000)
+                {
+                    m_logger.LogInformation("[hss-slow] {Section} total={Total} ms compute={Compute} ms ({Kind}) items={Count}",
+                        key, requested.ElapsedMilliseconds, computeMs, computeMs < 0 ? "cache or shared" : "computed", answer.Items?.Count ?? 0);
                 }
 
-                return m_resultCache.GetOrCompute(key, payload.UserId, queryCollection, cacheSeconds, section is PluginDefinedSection, () => section.GetResults(payload, queryCollection));
+                return answer;
             }
 
             return new QueryResult<BaseItemDto>(Array.Empty<BaseItemDto>());

@@ -204,7 +204,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
 
         public JArray? GetUserRequests(int seerrUserId)
         {
-            return Get($"/api/v1/user/{seerrUserId}/requests?take=40&sort=added", null)?.Value<JArray>("results");
+            return Get($"/api/v1/user/{seerrUserId}/requests?take=40", null)?.Value<JArray>("results");
         }
 
         // ---- Global list cache --------------------------------------------------------------------------------
