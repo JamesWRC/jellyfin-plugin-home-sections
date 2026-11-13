@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 
@@ -317,7 +318,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
                 {
                     IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Series },
                     Recursive = true,
-                    DtoOptions = new DtoOptions(false) { EnableImages = false }
+                    // Provider ids are only read when asked for; with no fields every title has no TMDB id.
+                    DtoOptions = new DtoOptions(false) { EnableImages = false, Fields = new[] { ItemFields.ProviderIds, ItemFields.Path } }
                 });
 
                 Dictionary<(bool, int), List<(Guid Id, bool Stub)>> map = new();

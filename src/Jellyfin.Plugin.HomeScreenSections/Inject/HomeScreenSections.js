@@ -307,12 +307,13 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 (function () {
     if (window.__hssOpenCard) { return; }
     window.__hssOpenCard = true;
-    document.addEventListener('click', function (ev) {
+    window.addEventListener('click', function (ev) {
         var card = ev.target && ev.target.closest ? ev.target.closest('.hss-open-card') : null;
         if (!card || ev.target.closest('.discover-requestbutton')) { return; }
         if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey) { return; }
         ev.preventDefault();
         ev.stopPropagation();
+        ev.stopImmediatePropagation();
         if (card.getAttribute('data-hss-busy')) { return; }
         var link = card.querySelector('a[href]');
         var fallback = link ? link.href : null;
