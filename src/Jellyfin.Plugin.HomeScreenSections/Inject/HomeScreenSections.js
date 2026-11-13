@@ -372,7 +372,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.10';
+    var BUILD = 'inject-3.0.5.11';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
@@ -457,4 +457,64 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         if (open) { ticks++; diag.snapshot('tick'); }
     }, 2000);
     setInterval(flush, 3000);
+})();
+
+// iOS paint nudge. On an iPhone's web view the home page can be completely built (rows, cards, images all in the page, nothing
+// hidden or covering them) and still be drawn black until the first touch or scroll. Nudging the page by a pixel and forcing the
+// rows onto a fresh layer makes it draw. Only on iOS, only while the home page is up, and rate limited.
+(function () {
+    var ua = navigator.userAgent || '';
+    var ios = /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    if (!ios || window.__hssPaintKick) { return; }
+    window.__hssPaintKick = true;
+
+    var kicks = [];
+    var timers = [];
+
+    function scroller(container) {
+        var e = container;
+        while (e && e !== document.documentElement) {
+            var cs = getComputedStyle(e);
+            if (/(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1) { return e; }
+            e = e.parentElement;
+        }
+        return document.scrollingElement || document.documentElement;
+    }
+
+    function kick(why) {
+        var container = document.querySelector('.homeSectionsContainer');
+        if (!container || container.offsetParent === null) { return; }
+        var now = Date.now();
+        kicks = kicks.filter(function (t) { return now - t < 10000; });
+        if (kicks.length >= 12) { return; }
+        kicks.push(now);
+        try {
+            var s = scroller(container);
+            var y = s.scrollTop;
+            s.scrollTop = y + 1;
+            var back = function () { if (s.scrollTop === y + 1) { s.scrollTop = y; } };
+            setTimeout(back, 30);
+            if (window.requestAnimationFrame) { requestAnimationFrame(back); }
+            container.style.transform = 'translateZ(0)';
+            setTimeout(function () { container.style.transform = ''; }, 60);
+            void container.offsetHeight;
+        } catch (e) { /* cosmetic */ }
+        if (window.HssDiag) { window.HssDiag.log('kick', why); }
+    }
+
+    // after the page last changed: soon, a bit later, and late (images arriving)
+    function schedule(why) {
+        timers.forEach(clearTimeout);
+        timers = [150, 600, 1500, 3000].map(function (ms) { return setTimeout(function () { kick(why + '+' + ms); }, ms); });
+    }
+
+    var queued = false;
+    new MutationObserver(function () {
+        if (queued || !document.querySelector('.homeSectionsContainer')) { return; }
+        queued = true;
+        setTimeout(function () { queued = false; schedule('mut'); }, 120);
+    }).observe(document.body, { childList: true, subtree: true });
+    ['pageshow', 'hashchange', 'visibilitychange', 'focus'].forEach(function (n) {
+        window.addEventListener(n, function () { if (document.visibilityState !== 'hidden') { schedule(n); } }, { passive: true });
+    });
 })();

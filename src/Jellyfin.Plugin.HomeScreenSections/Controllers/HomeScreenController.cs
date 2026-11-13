@@ -271,7 +271,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
             foreach (string line in payload.Events.Take(60))
             {
                 string clean = new string((line ?? string.Empty).Where(c => !char.IsControl(c)).ToArray());
-                m_logger.LogInformation("[hss-client] {User} build={Build} {Line} | {Ua}", who, payload.Build, clean.Length > 600 ? clean[..600] : clean, ua);
+                m_logger.LogInformation("[hss-client] {User} build={Build} {Line} | {Ua}", who, payload.Build, clean.Length > 1600 ? clean[..1600] : clean, ua);
             }
 
             return NoContent();
