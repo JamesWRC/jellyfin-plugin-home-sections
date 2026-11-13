@@ -17,6 +17,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Configuration
         /// </summary>
         public bool RevealSectionsTogether { get; set; } = false;
 
+        /// <summary>Browsers send a short trace of each home page build to the server log (diagnosing page behaviour on a device).</summary>
+        public bool ClientDiagnostics { get; set; } = false;
+
         /// <summary>How long to wait for a page of sections before showing whatever has loaded.</summary>
         public int RevealTimeoutMs { get; set; } = 1200;
 

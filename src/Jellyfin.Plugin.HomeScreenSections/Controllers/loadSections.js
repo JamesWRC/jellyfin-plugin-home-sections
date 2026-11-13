@@ -453,6 +453,7 @@
         var useHss = isUserUsingHomeScreenSections(hssMeta, userSettings);
         try { localStorage.setItem('hss.bootSkeleton', hssMeta.ShowBootSkeleton === true && useHss ? '1' : '0'); } catch (e) { }
         if (!useHss && window.HssBootSkeletonOff) { window.HssBootSkeletonOff(); }
+        if (window.HssDiag) { window.HssDiag.enable(hssMeta.ClientDiagnostics === true); window.HssDiag.log('meta', 'use=' + useHss + ' page=' + page); }
         window.HssGateConfig = { enabled: hssMeta.RevealSectionsTogether === true, timeoutMs: hssMeta.RevealTimeoutMs > 0 ? hssMeta.RevealTimeoutMs : 1200, preloadImages: hssMeta.PreloadSectionImages === true };
         
         if (!useHss) {
@@ -550,7 +551,9 @@
 
         var getSectionsUrl = apiClient.getUrl("HomeScreen/Sections", getSectionsData);
 
+        if (window.HssDiag) { window.HssDiag.log('sections-request', 'page=' + window.HssPageMeta.Page); }
         return apiClient.getJSON(getSectionsUrl).then(function (response) {
+            if (window.HssDiag) { window.HssDiag.log('sections-response', 'n=' + response.TotalRecordCount); }
             if (response.TotalRecordCount === 0 && window.HssPageMeta.Page > 1) {
                 window.HssPageMeta.Finished = true;
                 // Just a do nothing function
@@ -657,6 +660,7 @@
                                         var spinnerHtml = '<div id="hssLoadingIndicator" class="verticalSection" style="order: 2147000000;margin-top:60px;margin-bottom:60px;display:none;"><div dir="ltr" class="docspinner mdl-spinner mdlSpinnerActive" style="position: relative;top: 0;left: calc(50vw - 1.5em);"><div class="mdl-spinner__layer mdl-spinner__layer-1"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-2"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-3"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-4"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div></div></div>';
                                         
                                         elem.innerHTML = spinnerHtml + var44_3;
+                                        if (window.HssDiag) { window.HssDiag.snapshot('rendered-placeholders'); }
                                     }
                                     
                                     if (!elem.classList.contains("homeSectionsContainer")) {

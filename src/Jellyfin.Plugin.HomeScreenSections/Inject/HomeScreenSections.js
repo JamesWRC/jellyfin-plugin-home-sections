@@ -172,6 +172,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             var now = performance.now();
             gate.pending.forEach(function (section) {
                 if (!section.isConnected || now - section.__hssSince > maxAgeMs) {
+                    if (window.HssDiag) { window.HssDiag.log('stale-release', 'max=' + maxAgeMs + ' connected=' + section.isConnected + ' age=' + Math.round(now - section.__hssSince)); }
                     section.removeAttribute('data-hss-gate');
                     gate.pending.delete(section);
                 }
@@ -196,6 +197,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     section.setAttribute('data-hss-gate', 'pending');
                     section.__hssSince = performance.now();
                     HomeScreenSectionsGate.pending.add(section);
+                    if (window.HssDiag) { window.HssDiag.log('track', (section.className || '').split(' ')[1] + ' once=' + HomeScreenSectionsGate.releasedOnce); }
                     (pages[section.getAttribute('data-page')] = pages[section.getAttribute('data-page')] || []).push(section);
                 });
 
@@ -301,6 +303,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                         done = true;
                         sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); HomeScreenSectionsGate.pending.delete(section); });
                         HomeScreenSectionsGate.releasedOnce = true;
+                        if (window.HssDiag) { window.HssDiag.log('release', 'n=' + sections.length + ' finished=' + finished + ' timedOut=' + timedOut + ' elapsed=' + Math.round(performance.now() - started)); }
                         if (preloadImages) {
                             HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
                         }
@@ -363,4 +366,65 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 } else { fall(); }
             }, fall);
     }, true);
+})();
+
+// Client diagnostics (PluginConfiguration.ClientDiagnostics, off by default): a short trace of each home page build, sent to the
+// server log, for finding out what a device is doing when the home page stays blank.
+(function () {
+    if (window.HssDiag) { return; }
+    var BUILD = 'inject-3.0.5.7';
+    var t0 = performance.now();
+    var buf = [];
+    var enabled = false;
+    var ticks = 0;
+    var lastEv = {};
+
+    function stamp() { return Math.round(performance.now() - t0); }
+    function sections() {
+        return [].map.call(document.querySelectorAll('.homeSectionsContainer > .verticalSection'), function (s) {
+            var r = s.getBoundingClientRect();
+            var name = (s.className || '').split(' ').filter(function (c) { return c && c !== 'verticalSection' && c !== 'hide'; })[0] || '?';
+            return name + ':' + (s.getAttribute('data-hss-gate') === 'pending' ? 'P' : '') + (s.getAttribute('data-hss-fetched') === '1' ? 'F' : '') +
+                (s.classList.contains('hide') ? 'H' : '') + ':h' + Math.round(r.height) + ':c' + s.querySelectorAll('.card').length;
+        }).join(' ');
+    }
+    function flush() {
+        if (!enabled || buf.length === 0 || !window.ApiClient || !window.ApiClient.accessToken) { return; }
+        var lines = buf.splice(0, 60);
+        try {
+            window.ApiClient.ajax({ type: 'POST', url: window.ApiClient.getUrl('HomeScreen/ClientLog'), data: JSON.stringify({ Build: BUILD, Ua: navigator.userAgent, Events: lines }), contentType: 'application/json' }).catch(function () { });
+        } catch (e) { }
+    }
+
+    var diag = window.HssDiag = {
+        build: BUILD,
+        log: function (ev, data) {
+            if (buf.length < 300) { buf.push(stamp() + 'ms ' + ev + (data ? ' ' + (typeof data === 'string' ? data : JSON.stringify(data)) : '')); }
+        },
+        snapshot: function (tag) {
+            diag.log(tag, 'vis=' + document.visibilityState + ' hash=' + location.hash.slice(0, 18) + ' once=' + (window.HomeScreenSectionsGate ? '' : '') + ' secs=[' + sections() + ']');
+        },
+        enable: function (on) { enabled = on === true; if (enabled) { diag.log('enabled', 'ua=' + navigator.userAgent.slice(0, 80)); } }
+    };
+
+    ['touchstart', 'scroll', 'pageshow', 'visibilitychange', 'hashchange', 'focus', 'pagehide'].forEach(function (name) {
+        window.addEventListener(name, function () {
+            if (!enabled) { return; }
+            var n = performance.now();
+            if (lastEv[name] && n - lastEv[name] < (name === 'scroll' || name === 'touchstart' ? 4000 : 0)) { return; }
+            lastEv[name] = n;
+            diag.snapshot('ev:' + name);
+            if (name === 'pagehide' || name === 'visibilitychange') { flush(); }
+        }, { passive: true, capture: true });
+    });
+
+    // while the home page is up and anything is still held or unfetched, note its state every 2 s (about a minute at most)
+    setInterval(function () {
+        if (!enabled || ticks > 30) { return; }
+        var container = document.querySelector('.homeSectionsContainer');
+        if (!container || container.offsetParent === null) { return; }
+        var open = container.querySelector('[data-hss-gate="pending"], .verticalSection:not([data-hss-fetched="1"])');
+        if (open) { ticks++; diag.snapshot('tick'); }
+    }, 2000);
+    setInterval(flush, 3000);
 })();
