@@ -192,7 +192,7 @@
             var posterUrl = getPosterUrl(item.ProviderIds.JellyseerrPoster);
             var itemUrl = safeUrl(item.ProviderIds.JellyseerrRoot + '/' + item.SourceType + '/' + item.ProviderIds.Jellyseerr);
             
-            html += '           <a is="emby-linkbutton" target="_blank" href="' + escapeHtml(itemUrl) + '" class="cardImageContainer coveredImage cardContent itemAction lazy blurhashed lazy-image-fadein-fast" aria-label="" style="background-image: url(\'' + escapeCssUrl(posterUrl) + '\');color: inherit; text-decoration: none;"></a>';
+            html += '           <a is="emby-linkbutton" target="_blank" href="' + escapeHtml(itemUrl) + '" class="cardImageContainer coveredImage cardContent itemAction lazy blurhashed lazy-image-fadein-fast" aria-label="" data-src="' + escapeHtml(posterUrl) + '" style="color: inherit; text-decoration: none;"></a>';
             html += '           <div class="cardOverlayContainer itemAction" data-action="link">';
             html += '               <a is="emby-linkbutton" target="_blank" href="' + escapeHtml(itemUrl) + '" class="cardImageContainer"  style="color: inherit; text-decoration: none;"></a>';
             html += '               <div class="cardOverlayButton-br flex">';
