@@ -67,7 +67,6 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
 
             m_libraryManager.ItemAdded += OnLibraryItemChanged;
             m_libraryManager.ItemRemoved += OnLibraryItemChanged;
-            m_libraryManager.ItemUpdated += OnLibraryItemChanged;
             m_userDataManager.UserDataSaved += OnUserDataSaved;
         }
 
@@ -89,7 +88,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             TimeSpan lifetime = TimeSpan.FromSeconds(shortLived ? Math.Min(ttlSeconds, c_shortLivedSeconds) : ttlSeconds);
 
             string key = BuildKey(sectionKey, userId, query);
-            long libraryGeneration = Interlocked.Read(ref m_libraryGeneration);
+            // What a person has watched changes only when their own watch data does; a title being added or refreshed elsewhere in the
+            // library does not change their resume list. Those sections ignore library changes (the lifetime still bounds staleness).
+            long libraryGeneration = IsPerUserOnly(sectionKey) ? 0 : Interlocked.Read(ref m_libraryGeneration);
             long userGeneration = m_userGenerations.TryGetValue(userId, out long g) ? g : 0;
             long configGeneration = Interlocked.Read(ref s_configGeneration);
             DateTime now = DateTime.UtcNow;
@@ -122,7 +123,6 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
         {
             m_libraryManager.ItemAdded -= OnLibraryItemChanged;
             m_libraryManager.ItemRemoved -= OnLibraryItemChanged;
-            m_libraryManager.ItemUpdated -= OnLibraryItemChanged;
             m_userDataManager.UserDataSaved -= OnUserDataSaved;
         }
 
@@ -168,6 +168,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             m_userGenerations.AddOrUpdate(e.UserId, 1, (_, current) => current + 1);
         }
 
+        private static bool IsPerUserOnly(string sectionKey) =>
+            sectionKey is "ContinueWatching" or "NextUp" or "ContinueWatchingNextUp" or "WatchAgain" or "MyList";
+
         private static bool IsUsable(Entry entry, DateTime now, long libraryGeneration, long userGeneration, long configGeneration)
         {
             return entry.LibraryGeneration == libraryGeneration
@@ -192,7 +195,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
                     m_userGenerations.TryGetValue(userId, out userGeneration);
                 }
 
-                if (!IsUsable(pair.Value, now, libraryGeneration, userGeneration, configGeneration))
+                string sweepSection = pair.Key.Length > 33 ? pair.Key.Substring(33).Split('|')[0] : string.Empty;
+                if (!IsUsable(pair.Value, now, IsPerUserOnly(sweepSection) ? 0 : libraryGeneration, userGeneration, configGeneration))
                 {
                     m_entries.TryRemove(pair);
                 }
