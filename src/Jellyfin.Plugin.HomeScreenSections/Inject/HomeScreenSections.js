@@ -188,20 +188,22 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             return names[0] || '';
         },
         rememberHeights: function () {
+            var changed = false;
             document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
                 if (section.getAttribute('data-hss-gate') === 'pending' || section.getAttribute('data-hss-fetched') !== '1' || section.classList.contains('hide')) {
                     return;
                 }
                 var h = Math.round(section.getBoundingClientRect().height);
-                if (h > 40 && section.querySelector('.card')) {
-                    HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)] = h;
+                var key = HomeScreenSectionsGate.rowKey(section);
+                if (h > 40 && section.querySelector('.card') && Math.abs((HomeScreenSectionsGate.heights[key] || 0) - h) > 3) {
+                    HomeScreenSectionsGate.heights[key] = h;
+                    changed = true;
                 }
             });
-            var now = Date.now();
-            if (now - HomeScreenSectionsGate.heightsSavedAt > 2000) {
-                HomeScreenSectionsGate.heightsSavedAt = now;
-                try { localStorage.setItem('hss.rowHeights', JSON.stringify(HomeScreenSectionsGate.heights)); } catch (e) { }
-            }
+            if (changed) { HomeScreenSectionsGate.saveHeights(); }
+        },
+        saveHeights: function () {
+            try { localStorage.setItem('hss.rowHeights', JSON.stringify(HomeScreenSectionsGate.heights)); } catch (e) { }
         },
         // Hold one row at its remembered height until its own data has arrived and been drawn (or it turned out empty).
         holdRow: function (section, height) {
@@ -221,8 +223,10 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 if (!section.isConnected || section.getAttribute('data-hss-gate') !== 'pending') { gate.pending.delete(section); section.style.minHeight = ''; return; }
                 if (section.getAttribute('data-hss-fetched') === '1') {
                     if (!fetchedAt) { fetchedAt = performance.now(); }
-                    // its cards are drawn just after the data arrives; an empty row never gets any
-                    if (section.querySelector('.card') || performance.now() - fetchedAt > 400) { release(); return; }
+                    // its cards are drawn a little after the data arrives (longer for a long row on a slow phone); an empty
+                    // row never gets any and stays hidden
+                    var drawn = section.querySelector('.card') && !section.classList.contains('hide');
+                    if (drawn || performance.now() - fetchedAt > 1500) { release(); return; }
                 }
                 setTimeout(wait, 50);
             })();
@@ -417,6 +421,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 
     $(document).ready(function () {
         HomeScreenSectionsGate.init();
+        window.addEventListener('pagehide', function () { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); });
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); } });
     });
 }
 
@@ -455,7 +461,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.15';
+    var BUILD = 'inject-3.0.5.16';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
