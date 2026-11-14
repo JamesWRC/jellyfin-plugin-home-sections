@@ -148,6 +148,28 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         // Each row's real height, kept on the device so even the first visit after opening the app reserves the right space.
         heights: (function () { try { return JSON.parse(localStorage.getItem('hss.rowHeights') || '{}') || {}; } catch (e) { return {}; } })(),
         heightsSavedAt: 0,
+        isIos: (function () { var ua = navigator.userAgent || ''; return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); })(),
+        nudgeTimers: [],
+        // The iPhone app's web view often leaves rows that were just revealed undrawn until the next touch or scroll. A real
+        // one-pixel scroll of the window (the page's scrolling element) and back has the same effect as that touch.
+        nudge: function (why) {
+            var gate = HomeScreenSectionsGate;
+            if (!gate.isIos) { return; }
+            gate.nudgeTimers.forEach(clearTimeout);
+            gate.nudgeTimers = [80, 650].map(function (ms) {
+                return setTimeout(function () {
+                    var max = document.documentElement.scrollHeight - window.innerHeight;
+                    if (max <= 0 || !document.querySelector('.homeSectionsContainer')) { return; }
+                    var y = window.scrollY;
+                    var d = y < max ? 1 : -1;
+                    window.scrollTo(0, y + d);
+                    var back = function () { if (Math.abs(window.scrollY - (y + d)) < 1) { window.scrollTo(0, y); } };
+                    if (window.requestAnimationFrame) { requestAnimationFrame(back); }
+                    setTimeout(back, 50);
+                    if (window.HssDiag) { window.HssDiag.log('nudge', why + '+' + ms); }
+                }, ms);
+            });
+        },
         init: function () {
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             new MutationObserver(function () {
@@ -159,6 +181,18 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     });
                 }
             }).observe(document.body, { childList: true, subtree: true });
+
+            new MutationObserver(function (records) {
+                for (var i = 0; i < records.length; i++) {
+                    var el = records[i].target;
+                    if (el.classList && el.classList.contains('verticalSection') && !el.classList.contains('hide') &&
+                        /(^|\s)hide(\s|$)/.test(records[i].oldValue || '') && el.parentNode && el.parentNode.classList &&
+                        el.parentNode.classList.contains('homeSectionsContainer')) {
+                        HomeScreenSectionsGate.nudge('unhide');
+                        return;
+                    }
+                }
+            }).observe(document.body, { attributes: true, attributeFilter: ['class'], attributeOldValue: true, subtree: true });
 
             // Safety net. A section held by the gate must never stay hidden: the page can wake up late (a phone's web view
             // pauses timers and animation frames while it is in the background or mid-transition and runs them again on
@@ -218,6 +252,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 section.removeAttribute('data-hss-gate');
                 section.style.minHeight = '';
                 gate.pending.delete(section);
+                gate.nudge('held-row');
             };
             (function wait() {
                 if (!section.isConnected || section.getAttribute('data-hss-gate') !== 'pending') { gate.pending.delete(section); section.style.minHeight = ''; return; }
@@ -390,6 +425,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                             HomeScreenSectionsGate.pending.delete(section);
                         });
                         HomeScreenSectionsGate.releasedOnce = true;
+                        HomeScreenSectionsGate.nudge('reveal');
                         if (window.HssDiag) { window.HssDiag.log('release', 'n=' + sections.length + ' finished=' + finished + ' timedOut=' + timedOut + ' elapsed=' + Math.round(performance.now() - started)); }
                         if (preloadImages) {
                             HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
@@ -461,7 +497,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.16';
+    var BUILD = 'inject-3.0.5.17';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
