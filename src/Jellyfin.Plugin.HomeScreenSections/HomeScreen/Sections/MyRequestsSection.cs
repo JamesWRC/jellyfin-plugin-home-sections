@@ -25,7 +25,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections
             m_users = userManager;
         }
 
-        private static string Status(int requestStatus, int mediaStatus) => requestStatus switch
+        internal static string Status(int requestStatus, int mediaStatus) => requestStatus switch
         {
             1 => "Awaiting approval",
             3 => "Declined",

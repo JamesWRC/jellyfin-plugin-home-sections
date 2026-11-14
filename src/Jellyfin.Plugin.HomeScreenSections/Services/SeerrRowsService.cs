@@ -115,7 +115,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             return id;
         }
 
-        private static SeerrEntry? ParseResult(JObject r, bool isTv, string[] languages)
+        internal static SeerrEntry? ParseResult(JObject r, bool isTv, string[] languages)
         {
             if (r.Value<bool?>("adult") == true)
             {

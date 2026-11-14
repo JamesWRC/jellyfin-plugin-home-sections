@@ -23,6 +23,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
         private const int c_sweepEvery = 200;
         private const int c_shortLivedSeconds = 30;
 
+        /// <summary>The time source; tests replace it to step past an entry's lifetime without waiting.</summary>
+        internal static Func<DateTime> Clock { get; set; } = () => DateTime.UtcNow;
+
         // Bumped when the plugin configuration is saved: section settings (hide watched, item type, ...) change what a section returns.
         private static long s_configGeneration;
 
@@ -93,7 +96,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             long libraryGeneration = IsPerUserOnly(sectionKey) ? 0 : Interlocked.Read(ref m_libraryGeneration);
             long userGeneration = m_userGenerations.TryGetValue(userId, out long g) ? g : 0;
             long configGeneration = Interlocked.Read(ref s_configGeneration);
-            DateTime now = DateTime.UtcNow;
+            DateTime now = Clock();
 
             Entry fresh = new Entry(new Lazy<QueryResult<BaseItemDto>>(compute, LazyThreadSafetyMode.ExecutionAndPublication), now, lifetime, libraryGeneration, userGeneration, configGeneration);
 
@@ -190,7 +193,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
         // made stale by a change), and if the cache is still too big, the oldest.
         private void Sweep()
         {
-            DateTime now = DateTime.UtcNow;
+            DateTime now = Clock();
             long configGeneration = Interlocked.Read(ref s_configGeneration);
             long libraryGeneration = Interlocked.Read(ref m_libraryGeneration);
 
