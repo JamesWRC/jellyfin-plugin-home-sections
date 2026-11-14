@@ -425,7 +425,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.Services
             {
                 foreach (Guid id in kv.Value)
                 {
-                    if (visible.TryGetValue(id, out BaseItem? item))
+                    // A by-id query checks the user's library access only loosely: items in a library this user cannot see
+                    // (Gelato stubs in the Stremio libraries) still come back, and their details page then 404s. Keep only
+                    // what the user can open on its own, the same check Jellyfin's item endpoint applies.
+                    if (visible.TryGetValue(id, out BaseItem? item) && item.IsVisibleStandalone(user))
                     {
                         result[kv.Key] = item;
                         break;

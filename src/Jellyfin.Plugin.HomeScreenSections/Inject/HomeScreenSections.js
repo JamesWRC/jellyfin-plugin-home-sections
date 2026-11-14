@@ -97,6 +97,10 @@ if (typeof HomeScreenSectionsHandler == 'undefined') {
 if (typeof TopTenSectionHandler == 'undefined') {
     const TopTenSectionHandler = {
         init: function () {
+            // The section loader calls this right after it draws the row skeletons, so held rows get their space before the
+            // first paint instead of an animation frame later (which on a busy phone can be a second or two: the rows
+            // below would show at the top and then jump).
+            window.HssGateScan = function () { HomeScreenSectionsGate.scan(); };
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             var myObserver = new MutationObserver(this.mutationHandler);
             var observerConfig = {childList: true, characterData: true, attributes: true, subtree: true};
@@ -497,7 +501,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.17';
+    var BUILD = 'inject-3.0.5.19';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
