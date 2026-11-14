@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows
             new("Disney", "Disney+", "337", "US"),
             new("Stan", "Stan", "21", "AU"),
             new("HBOMax", "HBO Max", "1899", "US"),
-            new("Paramount", "Paramount+", "531", "US"),
+            new("Paramount", "Paramount+", "531|2303|2616", "US"),
             new("AppleTV", "Apple TV+", "350", "US"),
         };
 
