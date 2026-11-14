@@ -488,7 +488,7 @@
                 if (window.HssPageMeta.Finished !== true && window.HssPageMeta.IsLoading !== true && scrollPosition > windowHeight - window.HssPageMeta.ScrollThreshold && window.HssPageMeta.LastScrollHeight < window.scrollY) {
                     window.HssPageMeta.IsLoading = true;
 
-                    document.querySelector('#hssLoadingIndicator').style.display = 'block';
+                    var hssInd = document.querySelector('#hssLoadingIndicator'); if (hssInd) { hssInd.style.display = 'block'; }
 
                     // Do the calculation after the scroller is turned on
                     windowHeight = getDocHeight();
@@ -507,7 +507,7 @@
                     }, 1);
 
                     _this.loadSections(window.HssPageCache.elem, window.HssPageCache.apiClient, window.HssPageCache.user, window.HssPageCache.userSettings, window.HssPageMeta.Page + 1).then(function () {
-                        document.querySelector('#hssLoadingIndicator').style.display = 'none';
+                        var hssInd2 = document.querySelector('#hssLoadingIndicator'); if (hssInd2) { hssInd2.style.display = 'none'; }
 
                         window.HssPageMeta.IsLoading = false;
 

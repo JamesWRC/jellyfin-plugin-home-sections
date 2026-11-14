@@ -145,6 +145,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         scanQueued: false,
         pending: new Set(),
         releasedOnce: false,
+        heights: {},
         init: function () {
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             new MutationObserver(function () {
@@ -171,18 +172,61 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
             var gate = HomeScreenSectionsGate;
             var now = performance.now();
             gate.pending.forEach(function (section) {
-                if (!section.isConnected || now - section.__hssSince > maxAgeMs) {
+                if (!section.isConnected || now - section.__hssSince > Math.max(maxAgeMs, section.__hssMaxAge || 0)) {
                     if (window.HssDiag) { window.HssDiag.log('stale-release', 'max=' + maxAgeMs + ' connected=' + section.isConnected + ' age=' + Math.round(now - section.__hssSince)); }
                     section.removeAttribute('data-hss-gate');
+                    section.style.minHeight = '';
                     gate.pending.delete(section);
                 }
             });
+        },
+        // A row's identity across visits: its section class (e.g. ContinueWatchingNextUp), not its position.
+        rowKey: function (section) {
+            var names = (section.className || '').split(' ').filter(function (c) { return c && c !== 'verticalSection' && c !== 'hide' && !/^section\d+$/.test(c) && c.indexOf('verticalSection-') !== 0; });
+            return names[0] || '';
+        },
+        rememberHeights: function () {
+            document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                if (section.getAttribute('data-hss-gate') === 'pending' || section.getAttribute('data-hss-fetched') !== '1' || section.classList.contains('hide')) {
+                    return;
+                }
+                var h = Math.round(section.getBoundingClientRect().height);
+                if (h > 40 && section.querySelector('.card')) {
+                    HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)] = h;
+                }
+            });
+        },
+        // Hold one row at its remembered height until its own data has arrived and been drawn (or it turned out empty).
+        holdRow: function (section, height) {
+            var gate = HomeScreenSectionsGate;
+            section.setAttribute('data-hss-gate', 'pending');
+            section.style.minHeight = height + 'px';
+            section.__hssSince = performance.now();
+            section.__hssMaxAge = 8000;
+            gate.pending.add(section);
+            var fetchedAt = 0;
+            var release = function () {
+                section.removeAttribute('data-hss-gate');
+                section.style.minHeight = '';
+                gate.pending.delete(section);
+            };
+            (function wait() {
+                if (!section.isConnected || section.getAttribute('data-hss-gate') !== 'pending') { gate.pending.delete(section); section.style.minHeight = ''; return; }
+                if (section.getAttribute('data-hss-fetched') === '1') {
+                    if (!fetchedAt) { fetchedAt = performance.now(); }
+                    // its cards are drawn just after the data arrives; an empty row never gets any
+                    if (section.querySelector('.card') || performance.now() - fetchedAt > 400) { release(); return; }
+                }
+                setTimeout(wait, 50);
+            })();
         },
         scan: function () {
             var config = window.HssGateConfig;
             if (!config || !document.querySelector('.homeSectionsContainer')) {
                 return;
             }
+
+            HomeScreenSectionsGate.rememberHeights();
 
             // The reveal-together hold is for the first home page of a session only. Coming back to the home page shows each row as
             // soon as it arrives (the server has them cached): holding it again left the page blank for about two seconds.
@@ -204,6 +248,25 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 Object.keys(pages).forEach(function (page) {
                     HomeScreenSectionsGate.watch(pages[page], config.timeoutMs, config.preloadImages);
                 });
+            } else if (config.enabled) {
+                // Coming back to the home page: rows arrive in any order, and a slow one at the top (Continue Watching for a user with a
+                // long watch history) used to appear last and push every row below it down the screen; the iOS app then often failed
+                // to redraw the moved text until the next touch. Each row now keeps the size it had last time until its own data
+                // arrives, and the rows that are ready show straight away.
+                document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                    if (HomeScreenSectionsGate.tracked.has(section)) {
+                        return;
+                    }
+                    HomeScreenSectionsGate.tracked.add(section);
+                    var h = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)];
+                    if (!h || section.getAttribute('data-hss-fetched') === '1') {
+                        return;
+                    }
+                    HomeScreenSectionsGate.holdRow(section, h);
+                });
+                if (config.preloadImages) {
+                    HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(document.querySelectorAll('.homeSectionsContainer > .verticalSection')));
+                }
             } else if (config.preloadImages) {
                 // no gate: every card that is not loaded yet goes to the background queue, in page order
                 HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(document.querySelectorAll('.homeSectionsContainer > .verticalSection')));
@@ -372,7 +435,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.13';
+    var BUILD = 'inject-3.0.5.14';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
