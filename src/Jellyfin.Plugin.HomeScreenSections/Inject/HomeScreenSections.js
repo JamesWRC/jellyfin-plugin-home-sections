@@ -145,7 +145,9 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         scanQueued: false,
         pending: new Set(),
         releasedOnce: false,
-        heights: {},
+        // Each row's real height, kept on the device so even the first visit after opening the app reserves the right space.
+        heights: (function () { try { return JSON.parse(localStorage.getItem('hss.rowHeights') || '{}') || {}; } catch (e) { return {}; } })(),
+        heightsSavedAt: 0,
         init: function () {
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             new MutationObserver(function () {
@@ -195,6 +197,11 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)] = h;
                 }
             });
+            var now = Date.now();
+            if (now - HomeScreenSectionsGate.heightsSavedAt > 2000) {
+                HomeScreenSectionsGate.heightsSavedAt = now;
+                try { localStorage.setItem('hss.rowHeights', JSON.stringify(HomeScreenSectionsGate.heights)); } catch (e) { }
+            }
         },
         // Hold one row at its remembered height until its own data has arrived and been drawn (or it turned out empty).
         holdRow: function (section, height) {
@@ -239,6 +246,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 
                     HomeScreenSectionsGate.tracked.add(section);
                     section.setAttribute('data-hss-gate', 'pending');
+                    var known = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)];
+                    if (known) { section.style.minHeight = known + 'px'; }
                     section.__hssSince = performance.now();
                     HomeScreenSectionsGate.pending.add(section);
                     if (window.HssDiag) { window.HssDiag.log('track', (section.className || '').split(' ')[1] + ' once=' + HomeScreenSectionsGate.releasedOnce); }
@@ -364,7 +373,18 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                     var show = function () {
                         if (done) { return; }
                         done = true;
-                        sections.forEach(function (section) { section.removeAttribute('data-hss-gate'); HomeScreenSectionsGate.pending.delete(section); });
+                        sections.forEach(function (section) {
+                            if (section.isConnected && section.getAttribute('data-hss-fetched') !== '1') {
+                                // not ready yet: keep holding this row's space instead of letting it collapse and push the
+                                // rows below down the screen when it finally arrives
+                                var keep = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)] || Math.round(section.getBoundingClientRect().height);
+                                HomeScreenSectionsGate.holdRow(section, keep);
+                                return;
+                            }
+                            section.removeAttribute('data-hss-gate');
+                            section.style.minHeight = '';
+                            HomeScreenSectionsGate.pending.delete(section);
+                        });
                         HomeScreenSectionsGate.releasedOnce = true;
                         if (window.HssDiag) { window.HssDiag.log('release', 'n=' + sections.length + ' finished=' + finished + ' timedOut=' + timedOut + ' elapsed=' + Math.round(performance.now() - started)); }
                         if (preloadImages) {
@@ -435,7 +455,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
 // server log, for finding out what a device is doing when the home page stays blank.
 (function () {
     if (window.HssDiag) { return; }
-    var BUILD = 'inject-3.0.5.14';
+    var BUILD = 'inject-3.0.5.15';
     var t0 = performance.now();
     var buf = [];
     var enabled = false;
