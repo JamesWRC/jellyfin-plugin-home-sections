@@ -660,13 +660,18 @@
                                         var spinnerHtml = '<div id="hssLoadingIndicator" class="verticalSection" style="order: 2147000000;margin-top:60px;margin-bottom:60px;display:none;"><div dir="ltr" class="docspinner mdl-spinner mdlSpinnerActive" style="position: relative;top: 0;left: calc(50vw - 1.5em);"><div class="mdl-spinner__layer mdl-spinner__layer-1"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-2"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-3"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div><div class="mdl-spinner__layer mdl-spinner__layer-4"><div class="mdl-spinner__circle-clipper mdl-spinner__left"><div class="mdl-spinner__circle mdl-spinner__circleLeft"></div></div><div class="mdl-spinner__circle-clipper mdl-spinner__right"><div class="mdl-spinner__circle mdl-spinner__circleRight"></div></div></div></div></div>';
                                         
                                         elem.innerHTML = spinnerHtml + var44_3;
-                                        if (window.HssGateScan) { try { window.HssGateScan(); } catch (e) { } }
                                         if (window.HssDiag) { window.HssDiag.snapshot('rendered-placeholders'); }
                                     }
                                     
                                     if (!elem.classList.contains("homeSectionsContainer")) {
                                         elem.classList.add("homeSectionsContainer")
                                     }
+
+                                    // Hold the rows' space now, in the same task as the placeholders, so the first paint already has it. This must come
+                                    // AFTER the class above: the gate only looks at .homeSectionsContainer, which is this element's own class and so did
+                                    // not exist yet when this call sat right after the innerHTML line (the call did nothing and the hold waited for a
+                                    // mutation-observer animation frame, which can run after the first paint).
+                                    if (window.HssPageMeta.Page === 1 && window.HssGateScan) { try { window.HssGateScan(); } catch (e) { if (window.console) { console.warn('HSS: gate scan failed', e); } } }
                                     
                                     if (var44_.TotalRecordCount > 0)
                                         for (var44_7 = 0; var44_7 < var44_.Items.length; var44_7++) sectionInfo = var44_.Items[var44_7], options.sectionIndex = var44_7, var44_4.push(loadHomeSection(elem, apiClient, 0, userSettings, sectionInfo, options))

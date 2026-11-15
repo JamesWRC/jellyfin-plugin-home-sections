@@ -97,10 +97,6 @@ if (typeof HomeScreenSectionsHandler == 'undefined') {
 if (typeof TopTenSectionHandler == 'undefined') {
     const TopTenSectionHandler = {
         init: function () {
-            // The section loader calls this right after it draws the row skeletons, so held rows get their space before the
-            // first paint instead of an animation frame later (which on a busy phone can be a second or two: the rows
-            // below would show at the top and then jump).
-            window.HssGateScan = function () { HomeScreenSectionsGate.scan(); };
             var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
             var myObserver = new MutationObserver(this.mutationHandler);
             var observerConfig = {childList: true, characterData: true, attributes: true, subtree: true};
@@ -193,6 +189,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                         /(^|\s)hide(\s|$)/.test(records[i].oldValue || '') && el.parentNode && el.parentNode.classList &&
                         el.parentNode.classList.contains('homeSectionsContainer')) {
                         HomeScreenSectionsGate.nudge('unhide');
+                        HomeScreenSectionsGate.rememberSoon(300);
                         return;
                     }
                 }
@@ -243,6 +240,16 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         saveHeights: function () {
             try { localStorage.setItem('hss.rowHeights', JSON.stringify(HomeScreenSectionsGate.heights)); } catch (e) { }
         },
+        rememberTimers: {},
+        // Measure the rows again in `ms` (once, however often this is called for that delay). The row heights used to be taken only
+        // when the page happened to be mutated again, so a row that settled last (Continue Watching, held and revealed with the
+        // rest) was often never measured before the user left the page: the next visit had no height for it and the rows below
+        // it jumped by its height when it arrived.
+        rememberSoon: function (ms) {
+            var gate = HomeScreenSectionsGate;
+            if (gate.rememberTimers[ms]) { return; }
+            gate.rememberTimers[ms] = setTimeout(function () { gate.rememberTimers[ms] = 0; gate.rememberHeights(); }, ms);
+        },
         // Hold one row at its remembered height until its own data has arrived and been drawn (or it turned out empty).
         holdRow: function (section, height) {
             var gate = HomeScreenSectionsGate;
@@ -257,6 +264,7 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                 section.style.minHeight = '';
                 gate.pending.delete(section);
                 gate.nudge('held-row');
+                gate.rememberSoon(150);
             };
             (function wait() {
                 if (!section.isConnected || section.getAttribute('data-hss-gate') !== 'pending') { gate.pending.delete(section); section.style.minHeight = ''; return; }
@@ -430,6 +438,8 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
                         });
                         HomeScreenSectionsGate.releasedOnce = true;
                         HomeScreenSectionsGate.nudge('reveal');
+                        HomeScreenSectionsGate.rememberSoon(150);
+                        HomeScreenSectionsGate.rememberSoon(1600);
                         if (window.HssDiag) { window.HssDiag.log('release', 'n=' + sections.length + ' finished=' + finished + ' timedOut=' + timedOut + ' elapsed=' + Math.round(performance.now() - started)); }
                         if (preloadImages) {
                             HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
@@ -459,8 +469,18 @@ if (typeof HomeScreenSectionsGate == 'undefined') {
         }
     };
 
+    // The section loader (Controllers/loadSections.js) calls this right after it draws the row skeletons, so held rows get their
+    // space before the first paint instead of an animation frame later (which can be a frame after the paint, or on a busy phone
+    // a second or two: the rows below would show at the top and then jump). It has to be defined HERE: HomeScreenSectionsGate is
+    // a block-scoped const, not visible to the other blocks of this file, and the loader swallows errors from this call.
+    window.HssGateScan = function () { HomeScreenSectionsGate.scan(); };
+
     $(document).ready(function () {
         HomeScreenSectionsGate.init();
+        // Leaving the home page inside the app (details page, another tab): measure before the page is hidden, because a hidden
+        // row has no height. 'viewbeforehide' is jellyfin-web's own event, the others cover a plain URL change.
+        ['hashchange', 'popstate'].forEach(function (name) { window.addEventListener(name, function () { HomeScreenSectionsGate.rememberHeights(); }, true); });
+        document.addEventListener('viewbeforehide', function () { HomeScreenSectionsGate.rememberHeights(); }, true);
         window.addEventListener('pagehide', function () { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); });
         document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); } });
     });
