@@ -383,8 +383,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.Controllers
                 {
                     JObject jsonPayload = JObject.FromObject(sectionPayload);
 
-                    string? publishedServerUrl = m_serverApplicationHost.GetType()
-                        .GetProperty("PublishedServerUrl", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(m_serverApplicationHost) as string;
+                    string? publishedServerUrl = ReflectionHelper.GetPublishedServerUrl(m_serverApplicationHost);
                 
                     HttpClient client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
                     client.BaseAddress = new Uri(publishedServerUrl ?? $"http://localhost:{m_serverApplicationHost.HttpPort}");

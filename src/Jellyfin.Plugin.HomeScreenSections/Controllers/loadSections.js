@@ -414,7 +414,7 @@
                     getShapeFn = getBackdropShape;
                 }
                 
-                var imageHelper = b.Ay;
+                var imageHelper = {{imagehelper_hook}};
                 
                 itemsContainer.getItemsHtml = getHomeScreenSectionItemsHtmlFn(userSettings.useEpisodeImagesInNextUpAndResume(), options.enableOverflow, sectionInfo.Section, cardBuilder, getShapeFn, imageHelper, appRouterParent.appRouter, cardSettings);
                 itemsContainer.parentContainer = elem;
@@ -679,7 +679,7 @@
                                         param139_.resume && var134_4.push(param139_.resume(var134_2))
                                     })), Promise.all(var134_4)
                                 }))] : (var44_9 = (null === (var44_11 = user.Policy) || void 0 === var44_11 ? void 0 : var44_11.IsAdministrator) ? s.Ay.translate("NoCreatedLibraries", '<br><a id="button-createLibrary" class="button-link">', "</a>") : s.Ay.translate("AskAdminToCreateLibrary"), var44_3 += '<div class="centerMessage padded-left padded-right">', var44_3 += "<h2>" + s.Ay.translate("MessageNothingHere") + "</h2>", var44_3 += "<p>" + var44_9 + "</p>", var44_3 += "</div>", elem.innerHTML = var44_3, (var44_10 = elem.querySelector("#button-createLibrary")) && var44_10.addEventListener("click", (function () {
-                                    l.default.navigate("dashboard/libraries")
+                                    {{dashboard_hook}}.navigate("dashboard/libraries")
                                 })), [2])
                         }
                     }))
