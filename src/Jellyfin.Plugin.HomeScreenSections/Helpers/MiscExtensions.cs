@@ -13,12 +13,7 @@ public static class MiscExtensions
 {
     public static IEnumerable<BoxSet> GetCollections(this ICollectionManager collectionManager, User user)
     {
-        return collectionManager.GetType()
-            .GetMethod("GetCollections", BindingFlags.Instance | BindingFlags.NonPublic)?
-            .Invoke(collectionManager, new object?[]
-            {
-                user
-            }) as IEnumerable<BoxSet> ?? Enumerable.Empty<BoxSet>();
+        return ReflectionHelper.GetCollections(collectionManager, user);
     }
 
     public static bool IsMixedFolder(this VirtualFolderInfo folder, ILibraryManager libraryManager)

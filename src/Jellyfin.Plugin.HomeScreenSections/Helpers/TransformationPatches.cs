@@ -26,6 +26,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Helpers
                 replacementText = replacementText.Replace("{{appRouterParent_hook}}", "p");
                 replacementText = replacementText.Replace("{{shapebuilder_hook}}", "y");
                 replacementText = replacementText.Replace("{{layoutmanager_hook}}", "n"); // TODO: lookup the first "assigned" variable after `var`
+                replacementText = replacementText.Replace("{{imagehelper_hook}}", "b.Ay");
+                replacementText = replacementText.Replace("{{dashboard_hook}}", "l.default");
             }
             else if (JellyfinVersionAttribute.GetVersion()?.StartsWith("10.11") ?? false)
             {
@@ -33,6 +35,8 @@ namespace Jellyfin.Plugin.HomeScreenSections.Helpers
                 replacementText = replacementText.Replace("{{appRouterParent_hook}}", "p");
                 replacementText = replacementText.Replace("{{shapebuilder_hook}}", "y");
                 replacementText = replacementText.Replace("{{layoutmanager_hook}}", "n"); // TODO: lookup the first "assigned" variable after `var`
+                replacementText = replacementText.Replace("{{imagehelper_hook}}", "b.Ay");
+                replacementText = replacementText.Replace("{{dashboard_hook}}", "l.default");
             }
             else if (JellyfinVersionAttribute.GetVersion()?.StartsWith("12.") ?? false)
             {
@@ -40,6 +44,9 @@ namespace Jellyfin.Plugin.HomeScreenSections.Helpers
                 replacementText = replacementText.Replace("{{appRouterParent_hook}}", "T");
                 replacementText = replacementText.Replace("{{shapebuilder_hook}}", "I");
                 replacementText = replacementText.Replace("{{layoutmanager_hook}}", "r(46782)"); // TODO: lookup the first "assigned" variable after `var`
+                // imageHelper (getLibraryIcon) and Dashboard (navigate): verified against the 12.3.0 and 12.4.0 bundles by plugin-tests/contract
+                replacementText = replacementText.Replace("{{imagehelper_hook}}", "A.Ay");
+                replacementText = replacementText.Replace("{{dashboard_hook}}", "c.Ay");
             }
             
             string regex = content.Contents.Replace(",loadSections:", $",loadSections:{replacementText},originalLoadSections:");

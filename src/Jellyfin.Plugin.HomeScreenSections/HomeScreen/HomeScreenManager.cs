@@ -1,12 +1,15 @@
 using System.Diagnostics;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections;
+using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Rows;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Latest;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Persons;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.RecentlyAdded;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections.Upcoming;
 using Jellyfin.Plugin.HomeScreenSections.Library;
 using Jellyfin.Plugin.HomeScreenSections.Model.Dto;
+using Jellyfin.Plugin.HomeScreenSections.Services;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
@@ -29,6 +32,7 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         private readonly IServiceProvider m_serviceProvider;
         private readonly IApplicationPaths m_applicationPaths;
         private readonly ILogger m_logger;
+        private readonly SectionResultCache m_resultCache;
 
         private const string c_settingsFile = "ModularHomeSettings.json";
 
@@ -37,9 +41,10 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         /// </summary>
         /// <param name="serviceProvider">Instance of the <see cref="IServiceProvider"/> interface.</param>
         /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
-        public HomeScreenManager(IServiceProvider serviceProvider, IApplicationPaths applicationPaths, ILogger<HomeScreenManager> logger)
+        public HomeScreenManager(IServiceProvider serviceProvider, IApplicationPaths applicationPaths, ILogger<HomeScreenManager> logger, ILibraryManager libraryManager, IUserDataManager userDataManager, ILogger<SectionResultCache> cacheLogger)
         {
             m_logger = logger;
+            m_resultCache = new SectionResultCache(libraryManager, userDataManager, cacheLogger);
             m_serviceProvider = serviceProvider;
             m_applicationPaths = applicationPaths;
 
@@ -91,6 +96,12 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             
             RegisterResultsDelegate<GenreSection>();
             RegisterResultsDelegate<MyRequestsSection>();
+            RegisterResultsDelegate<NewToServerSection>();
+            RegisterResultsDelegate<ComingSoonSection>();
+            foreach (StreamingService service in StreamingRowSection.Catalogue)
+            {
+                RegisterResultsDelegate(ActivatorUtilities.CreateInstance<StreamingRowSection>(m_serviceProvider, service));
+            }
 
             RegisterResultsDelegate<DirectedBySection>();
             RegisterResultsDelegate<StarringSection>();
@@ -101,6 +112,46 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
             RegisterResultsDelegate<FinishTheseCollectionsSection>();
 
             //RegisterResultsDelegate<TopTenSection>();
+
+            StartRowsWarmLoop();
+        }
+
+        /// <summary>
+        /// Keeps the global Seerr lists (streaming services, coming soon) and the library TMDB map fresh in the background,
+        /// so a page load never waits on Seerr or TMDB.
+        /// </summary>
+        private void StartRowsWarmLoop()
+        {
+            Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                SeerrRowsService rows = m_serviceProvider.GetRequiredService<SeerrRowsService>();
+                while (true)
+                {
+                    try
+                    {
+                        rows.WarmMap();
+                        if (!string.IsNullOrEmpty(HomeScreenSectionsPlugin.Instance?.Configuration?.JellyseerrUrl))
+                        {
+                            var coming = (ComingSoonSection)m_delegates["ComingSoon"];
+                            var (cKey, cFetch) = coming.List();
+                            rows.Warm(cKey, TimeSpan.FromHours(6), cFetch);
+
+                            foreach (StreamingRowSection streaming in m_delegates.Values.OfType<StreamingRowSection>())
+                            {
+                                var (key, fetch) = streaming.ListFor(streaming.AdminRegion(), streaming.AdminKind());
+                                rows.Warm(key, TimeSpan.FromHours(24), fetch);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        m_logger.LogWarning("Rows warm-up failed: {Message}", ex.Message);
+                    }
+
+                    await Task.Delay(rows.MapReady ? TimeSpan.FromMinutes(30) : TimeSpan.FromMinutes(1));
+                }
+            });
         }
 
         /// <inheritdoc/>
@@ -117,9 +168,33 @@ namespace Jellyfin.Plugin.HomeScreenSections.HomeScreen
         /// <inheritdoc/>
         public QueryResult<BaseItemDto> InvokeResultsDelegate(string key, HomeScreenSectionPayload payload, IQueryCollection queryCollection)
         {
-            if (m_delegates.ContainsKey(key))
+            if (m_delegates.TryGetValue(key, out IHomeScreenSection? section))
             {
-                return m_delegates[key].GetResults(payload, queryCollection);
+                int cacheSeconds = Math.Clamp(HomeScreenSectionsPlugin.Instance?.Configuration?.SectionCacheSeconds ?? 0, 0, 3600);
+
+                // Sections that take a second or more are logged with how long the work itself took (as opposed to waiting for a
+                // thread or the database), to tell a heavy section from a busy server.
+                Stopwatch requested = Stopwatch.StartNew();
+                long computeMs = -1;
+                Func<QueryResult<BaseItemDto>> compute = () =>
+                {
+                    Stopwatch work = Stopwatch.StartNew();
+                    QueryResult<BaseItemDto> result = section.GetResults(payload, queryCollection);
+                    computeMs = work.ElapsedMilliseconds;
+                    return result;
+                };
+
+                QueryResult<BaseItemDto> answer = cacheSeconds <= 0
+                    ? compute()
+                    : m_resultCache.GetOrCompute(key, payload.UserId, queryCollection, cacheSeconds, section is PluginDefinedSection, compute);
+
+                if (requested.ElapsedMilliseconds >= 1000)
+                {
+                    m_logger.LogInformation("[hss-slow] {Section} total={Total} ms compute={Compute} ms ({Kind}) items={Count}",
+                        key, requested.ElapsedMilliseconds, computeMs, computeMs < 0 ? "cache or shared" : "computed", answer.Items?.Count ?? 0);
+                }
+
+                return answer;
             }
 
             return new QueryResult<BaseItemDto>(Array.Empty<BaseItemDto>());

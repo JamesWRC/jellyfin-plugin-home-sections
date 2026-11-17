@@ -1,5 +1,45 @@
 'use strict';
 
+// Boot outline (PluginConfiguration.ShowBootSkeleton). This file is loaded in the first few hundred milliseconds, long before the
+// web app has started and created the first section, so it can paint an outline of the home page straight away. The option is
+// read from localStorage (written by the section loader when it reads /HomeScreen/Meta), so it applies from a user's second
+// visit. The outline is removed as soon as the real section placeholders exist, if the user does not use these sections, when
+// the user leaves the home page, or after 8 seconds at the latest.
+(function () {
+    try {
+        var hash = window.location.hash;
+        if (localStorage.getItem('hss.bootSkeleton') !== '1' || (hash !== '' && hash !== '#' && hash.indexOf('#/home') !== 0)) {
+            return;
+        }
+
+        var root = document.documentElement;
+        var observer = null;
+        var off = function () {
+            root.classList.remove('hss-boot');
+            if (observer) { observer.disconnect(); observer = null; }
+        };
+
+        window.HssBootSkeletonOff = off;
+        root.classList.add('hss-boot');
+        requestAnimationFrame(function () { performance.mark('hss-boot-painted'); });
+
+        var queued = false;
+        observer = new MutationObserver(function () {
+            if (queued) { return; }
+            queued = true;
+            requestAnimationFrame(function () {
+                queued = false;
+                if (document.querySelector('.homeSectionsContainer > .verticalSection')) {
+                    off();
+                }
+            });
+        });
+        observer.observe(root, { childList: true, subtree: true });
+        window.addEventListener('hashchange', function () { if (window.location.hash.indexOf('#/home') !== 0) { off(); } });
+        setTimeout(off, 8000);
+    } catch (e) { /* the outline is cosmetic */ }
+})();
+
 if (typeof HomeScreenSectionsHandler == 'undefined') {
     const HomeScreenSectionsHandler = {
         init: function() {
@@ -85,3 +125,531 @@ if (typeof TopTenSectionHandler == 'undefined') {
         TopTenSectionHandler.init();
     }, 50);
 }
+
+// Reveal-together gate (PluginConfiguration.RevealSectionsTogether) and image preloading (PluginConfiguration.PreloadSectionImages).
+//
+// Gate: sections of a page are created hidden and each one appears when its own request returns, which moves everything below
+// it. While gated, a page's sections are shown as fixed-height placeholders and are all released in the same frame once every
+// one has finished, or after the timeout.
+//
+// Preload: Jellyfin loads a card's image only when the card is within half a screen of the viewport, then fades it in over the
+// blurhash. Scrolling a row therefore shows each new card blurred or empty for a moment. With preloading, the images of the
+// cards in the first screen are decoded before the sections are revealed, and every other card in the rows is loaded in the
+// background and put in place finished (no blurhash, no fade) so there is nothing left to load when it is scrolled into view.
+if (typeof HomeScreenSectionsGate == 'undefined') {
+    const HomeScreenSectionsGate = {
+        tracked: new WeakSet(),
+        queue: [],
+        active: 0,
+        maxActive: 6,
+        scanQueued: false,
+        pending: new Set(),
+        releasedOnce: false,
+        // Each row's real height, kept on the device so even the first visit after opening the app reserves the right space.
+        heights: (function () { try { return JSON.parse(localStorage.getItem('hss.rowHeights') || '{}') || {}; } catch (e) { return {}; } })(),
+        heightsSavedAt: 0,
+        isIos: (function () { var ua = navigator.userAgent || ''; return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); })(),
+        nudgeTimers: [],
+        // The iPhone app's web view often leaves rows that were just revealed undrawn until the next touch or scroll. A real
+        // one-pixel scroll of the window (the page's scrolling element) and back has the same effect as that touch.
+        nudge: function (why) {
+            var gate = HomeScreenSectionsGate;
+            if (!gate.isIos) { return; }
+            gate.nudgeTimers.forEach(clearTimeout);
+            gate.nudgeTimers = [80, 650].map(function (ms) {
+                return setTimeout(function () {
+                    var max = document.documentElement.scrollHeight - window.innerHeight;
+                    if (max <= 0 || !document.querySelector('.homeSectionsContainer')) { return; }
+                    var y = window.scrollY;
+                    var d = y < max ? 1 : -1;
+                    window.scrollTo(0, y + d);
+                    var back = function () { if (Math.abs(window.scrollY - (y + d)) < 1) { window.scrollTo(0, y); } };
+                    if (window.requestAnimationFrame) { requestAnimationFrame(back); }
+                    setTimeout(back, 50);
+                    if (window.HssDiag) { window.HssDiag.log('nudge', why + '+' + ms); }
+                }, ms);
+            });
+        },
+        init: function () {
+            var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
+            new MutationObserver(function () {
+                if (!HomeScreenSectionsGate.scanQueued) {
+                    HomeScreenSectionsGate.scanQueued = true;
+                    requestAnimationFrame(function () {
+                        HomeScreenSectionsGate.scanQueued = false;
+                        HomeScreenSectionsGate.scan();
+                    });
+                }
+            }).observe(document.body, { childList: true, subtree: true });
+
+            new MutationObserver(function (records) {
+                for (var i = 0; i < records.length; i++) {
+                    var el = records[i].target;
+                    if (el.classList && el.classList.contains('verticalSection') && !el.classList.contains('hide') &&
+                        /(^|\s)hide(\s|$)/.test(records[i].oldValue || '') && el.parentNode && el.parentNode.classList &&
+                        el.parentNode.classList.contains('homeSectionsContainer')) {
+                        HomeScreenSectionsGate.nudge('unhide');
+                        HomeScreenSectionsGate.rememberSoon(300);
+                        return;
+                    }
+                }
+            }).observe(document.body, { attributes: true, attributeFilter: ['class'], attributeOldValue: true, subtree: true });
+
+            // Safety net. A section held by the gate must never stay hidden: the page can wake up late (a phone's web view
+            // pauses timers and animation frames while it is in the background or mid-transition and runs them again on
+            // the first touch), so anything held for too long is released, on a timer and on every sign of life.
+            var wake = function () { HomeScreenSectionsGate.releaseStale(1500); };
+            setInterval(function () { HomeScreenSectionsGate.releaseStale(2500); }, 500);
+            ['touchstart', 'touchmove', 'scroll', 'focus', 'pageshow', 'visibilitychange', 'resize', 'hashchange'].forEach(function (name) {
+                window.addEventListener(name, wake, { passive: true });
+            });
+            document.addEventListener('visibilitychange', wake);
+        },
+        releaseStale: function (maxAgeMs) {
+            var gate = HomeScreenSectionsGate;
+            var now = performance.now();
+            gate.pending.forEach(function (section) {
+                if (!section.isConnected || now - section.__hssSince > Math.max(maxAgeMs, section.__hssMaxAge || 0)) {
+                    if (window.HssDiag) { window.HssDiag.log('stale-release', 'max=' + maxAgeMs + ' connected=' + section.isConnected + ' age=' + Math.round(now - section.__hssSince)); }
+                    section.removeAttribute('data-hss-gate');
+                    section.style.minHeight = '';
+                    gate.pending.delete(section);
+                }
+            });
+        },
+        // A row's identity across visits: its section class (e.g. ContinueWatchingNextUp), not its position.
+        rowKey: function (section) {
+            var names = (section.className || '').split(' ').filter(function (c) { return c && c !== 'verticalSection' && c !== 'hide' && !/^section\d+$/.test(c) && c.indexOf('verticalSection-') !== 0; });
+            return names[0] || '';
+        },
+        rememberHeights: function () {
+            var changed = false;
+            document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                if (section.getAttribute('data-hss-gate') === 'pending' || section.getAttribute('data-hss-fetched') !== '1' || section.classList.contains('hide')) {
+                    return;
+                }
+                var h = Math.round(section.getBoundingClientRect().height);
+                var key = HomeScreenSectionsGate.rowKey(section);
+                if (h > 40 && section.querySelector('.card') && Math.abs((HomeScreenSectionsGate.heights[key] || 0) - h) > 3) {
+                    HomeScreenSectionsGate.heights[key] = h;
+                    changed = true;
+                }
+            });
+            if (changed) { HomeScreenSectionsGate.saveHeights(); }
+        },
+        saveHeights: function () {
+            try { localStorage.setItem('hss.rowHeights', JSON.stringify(HomeScreenSectionsGate.heights)); } catch (e) { }
+        },
+        rememberTimers: {},
+        // Measure the rows again in `ms` (once, however often this is called for that delay). The row heights used to be taken only
+        // when the page happened to be mutated again, so a row that settled last (Continue Watching, held and revealed with the
+        // rest) was often never measured before the user left the page: the next visit had no height for it and the rows below
+        // it jumped by its height when it arrived.
+        rememberSoon: function (ms) {
+            var gate = HomeScreenSectionsGate;
+            if (gate.rememberTimers[ms]) { return; }
+            gate.rememberTimers[ms] = setTimeout(function () { gate.rememberTimers[ms] = 0; gate.rememberHeights(); }, ms);
+        },
+        // Hold one row at its remembered height until its own data has arrived and been drawn (or it turned out empty).
+        holdRow: function (section, height) {
+            var gate = HomeScreenSectionsGate;
+            section.setAttribute('data-hss-gate', 'pending');
+            section.style.minHeight = height + 'px';
+            section.__hssSince = performance.now();
+            section.__hssMaxAge = 8000;
+            gate.pending.add(section);
+            var fetchedAt = 0;
+            var release = function () {
+                section.removeAttribute('data-hss-gate');
+                section.style.minHeight = '';
+                gate.pending.delete(section);
+                gate.nudge('held-row');
+                gate.rememberSoon(150);
+            };
+            (function wait() {
+                if (!section.isConnected || section.getAttribute('data-hss-gate') !== 'pending') { gate.pending.delete(section); section.style.minHeight = ''; return; }
+                if (section.getAttribute('data-hss-fetched') === '1') {
+                    if (!fetchedAt) { fetchedAt = performance.now(); }
+                    // its cards are drawn a little after the data arrives (longer for a long row on a slow phone); an empty
+                    // row never gets any and stays hidden
+                    var drawn = section.querySelector('.card') && !section.classList.contains('hide');
+                    if (drawn || performance.now() - fetchedAt > 1500) { release(); return; }
+                }
+                setTimeout(wait, 50);
+            })();
+        },
+        scan: function () {
+            var config = window.HssGateConfig;
+            if (!config || !document.querySelector('.homeSectionsContainer')) {
+                return;
+            }
+
+            HomeScreenSectionsGate.rememberHeights();
+
+            // The reveal-together hold is for the first home page of a session only. Coming back to the home page shows each row as
+            // soon as it arrives (the server has them cached): holding it again left the page blank for about two seconds.
+            if (config.enabled && !HomeScreenSectionsGate.releasedOnce) {
+                var pages = {};
+                document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                    if (HomeScreenSectionsGate.tracked.has(section)) {
+                        return;
+                    }
+
+                    HomeScreenSectionsGate.tracked.add(section);
+                    section.setAttribute('data-hss-gate', 'pending');
+                    var known = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)];
+                    if (known) { section.style.minHeight = known + 'px'; }
+                    section.__hssSince = performance.now();
+                    HomeScreenSectionsGate.pending.add(section);
+                    if (window.HssDiag) { window.HssDiag.log('track', (section.className || '').split(' ')[1] + ' once=' + HomeScreenSectionsGate.releasedOnce); }
+                    (pages[section.getAttribute('data-page')] = pages[section.getAttribute('data-page')] || []).push(section);
+                });
+
+                Object.keys(pages).forEach(function (page) {
+                    HomeScreenSectionsGate.watch(pages[page], config.timeoutMs, config.preloadImages);
+                });
+            } else if (config.enabled) {
+                // Coming back to the home page: rows arrive in any order, and a slow one at the top (Continue Watching for a user with a
+                // long watch history) used to appear last and push every row below it down the screen; the iOS app then often failed
+                // to redraw the moved text until the next touch. Each row now keeps the size it had last time until its own data
+                // arrives, and the rows that are ready show straight away.
+                document.querySelectorAll('.homeSectionsContainer > .verticalSection[data-page]').forEach(function (section) {
+                    if (HomeScreenSectionsGate.tracked.has(section)) {
+                        return;
+                    }
+                    HomeScreenSectionsGate.tracked.add(section);
+                    var h = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)];
+                    if (!h || section.getAttribute('data-hss-fetched') === '1') {
+                        return;
+                    }
+                    HomeScreenSectionsGate.holdRow(section, h);
+                });
+                if (config.preloadImages) {
+                    HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(document.querySelectorAll('.homeSectionsContainer > .verticalSection')));
+                }
+            } else if (config.preloadImages) {
+                // no gate: every card that is not loaded yet goes to the background queue, in page order
+                HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(document.querySelectorAll('.homeSectionsContainer > .verticalSection')));
+            }
+        },
+        cardsIn: function (sections) {
+            var cards = [];
+            Array.prototype.forEach.call(sections, function (section) {
+                Array.prototype.forEach.call(section.querySelectorAll('.cardImageContainer[data-src]'), function (card) { cards.push(card); });
+            });
+            return cards;
+        },
+        // true for a card that will be on screen when the page is first shown
+        isFirstScreen: function (card) {
+            var rect = card.getBoundingClientRect();
+            return rect.width > 0 && rect.top < window.innerHeight * 1.1 && rect.left < window.innerWidth * 1.1 && rect.bottom > 0;
+        },
+        // Fetch and decode the image, then put it on the card finished: no fade, no blurhash behind it.
+        hydrate: function (card) {
+            var url = card.getAttribute('data-src');
+            if (!url || !card.isConnected) {
+                return Promise.resolve(); // nothing to load, or the home page was rebuilt and this card is gone
+            }
+
+            var image = new Image();
+            image.decoding = 'async';
+            image.src = url;
+
+            var finish = function () {
+                if (!card.isConnected || card.getAttribute('data-src') !== url) {
+                    return; // the lazy loader got there first
+                }
+
+                card.style.backgroundImage = "url('" + url.replace(/[\\'\n\r\f]/g, function (c) { return '\\' + c.charCodeAt(0).toString(16) + ' '; }) + "')";
+                card.removeAttribute('data-src');
+                card.classList.remove('lazy-hidden');
+
+                var canvas = card.previousSibling;
+                if (canvas && canvas.tagName === 'CANVAS') {
+                    canvas.classList.add('lazy-hidden');
+                }
+
+                var padder = card.parentNode && card.parentNode.querySelector('.cardPadder');
+                if (padder) {
+                    padder.classList.add('lazy-hidden-children');
+                }
+            };
+
+            var loaded = image.decode ? image.decode() : new Promise(function (resolve, reject) { image.onload = resolve; image.onerror = reject; });
+            // a decode that never settles must not keep one of the few download slots forever
+            var guarded = Promise.race([loaded, new Promise(function (resolve) { setTimeout(resolve, 8000); })]);
+            return guarded.then(finish, function () { /* leave this card to the lazy loader */ });
+        },
+        enqueue: function (cards) {
+            cards.forEach(function (card) {
+                if (card.getAttribute('data-src') && !card.__hssQueued) {
+                    card.__hssQueued = true;
+                    HomeScreenSectionsGate.queue.push(card);
+                }
+            });
+            HomeScreenSectionsGate.pump();
+        },
+        pump: function () {
+            var gate = HomeScreenSectionsGate;
+            while (gate.active < gate.maxActive && gate.queue.length > 0) {
+                var card = gate.queue.shift();
+                gate.active++;
+                gate.hydrate(card).then(function () {
+                    gate.active--;
+                    gate.pump();
+                });
+            }
+        },
+        watch: function (sections, timeoutMs, preloadImages) {
+            var started = performance.now();
+            // Only the first home page of a session is held for all its rows. Coming back to the home page (the sections are
+            // rebuilt, but the server has them cached) shows them as they arrive, after a short wait at most.
+            var isReturn = HomeScreenSectionsGate.releasedOnce;
+            var waitImages = preloadImages && !isReturn;
+            if (isReturn) { timeoutMs = Math.min(timeoutMs, 400); }
+
+            (function check() {
+                var finished = sections.every(function (section) {
+                    return !section.isConnected || section.getAttribute('data-hss-fetched') === '1';
+                });
+                var timedOut = performance.now() - started >= timeoutMs;
+
+                if (!finished && !timedOut) {
+                    setTimeout(check, 40);
+                    return;
+                }
+
+                var release = function () {
+                    var done = false;
+                    var show = function () {
+                        if (done) { return; }
+                        done = true;
+                        sections.forEach(function (section) {
+                            if (section.isConnected && section.getAttribute('data-hss-fetched') !== '1') {
+                                // not ready yet: keep holding this row's space instead of letting it collapse and push the
+                                // rows below down the screen when it finally arrives
+                                var keep = HomeScreenSectionsGate.heights[HomeScreenSectionsGate.rowKey(section)] || Math.round(section.getBoundingClientRect().height);
+                                HomeScreenSectionsGate.holdRow(section, keep);
+                                return;
+                            }
+                            section.removeAttribute('data-hss-gate');
+                            section.style.minHeight = '';
+                            HomeScreenSectionsGate.pending.delete(section);
+                        });
+                        HomeScreenSectionsGate.releasedOnce = true;
+                        HomeScreenSectionsGate.nudge('reveal');
+                        HomeScreenSectionsGate.rememberSoon(150);
+                        HomeScreenSectionsGate.rememberSoon(1600);
+                        if (window.HssDiag) { window.HssDiag.log('release', 'n=' + sections.length + ' finished=' + finished + ' timedOut=' + timedOut + ' elapsed=' + Math.round(performance.now() - started)); }
+                        if (preloadImages) {
+                            HomeScreenSectionsGate.enqueue(HomeScreenSectionsGate.cardsIn(sections));
+                        }
+                    };
+
+                    // one frame later, so the cards of the last section have been drawn before anything is shown;
+                    // the timer covers a background tab, where animation frames do not run
+                    requestAnimationFrame(show);
+                    setTimeout(show, 60);
+                };
+
+                if (!waitImages) {
+                    release();
+                    return;
+                }
+
+                // Hold the reveal until the first screen's images are decoded, but never for long.
+                var cards = HomeScreenSectionsGate.cardsIn(sections);
+                var firstScreen = cards.filter(HomeScreenSectionsGate.isFirstScreen);
+                var grace = Math.max(timeoutMs - (performance.now() - started), 0) + 400;
+                Promise.race([
+                    Promise.all(firstScreen.map(HomeScreenSectionsGate.hydrate)),
+                    new Promise(function (resolve) { setTimeout(resolve, grace); })
+                ]).then(release);
+            })();
+        }
+    };
+
+    // The section loader (Controllers/loadSections.js) calls this right after it draws the row skeletons, so held rows get their
+    // space before the first paint instead of an animation frame later (which can be a frame after the paint, or on a busy phone
+    // a second or two: the rows below would show at the top and then jump). It has to be defined HERE: HomeScreenSectionsGate is
+    // a block-scoped const, not visible to the other blocks of this file, and the loader swallows errors from this call.
+    window.HssGateScan = function () { HomeScreenSectionsGate.scan(); };
+
+    $(document).ready(function () {
+        HomeScreenSectionsGate.init();
+        // Leaving the home page inside the app (details page, another tab): measure before the page is hidden, because a hidden
+        // row has no height. 'viewbeforehide' is jellyfin-web's own event, the others cover a plain URL change.
+        ['hashchange', 'popstate'].forEach(function (name) { window.addEventListener(name, function () { HomeScreenSectionsGate.rememberHeights(); }, true); });
+        document.addEventListener('viewbeforehide', function () { HomeScreenSectionsGate.rememberHeights(); }, true);
+        window.addEventListener('pagehide', function () { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); });
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { HomeScreenSectionsGate.rememberHeights(); HomeScreenSectionsGate.saveHeights(); } });
+    });
+}
+
+// Streaming rows: a title the server does not have opens through Gelato (which adds it and streams it), where the
+// server allows this user; otherwise it falls back to the request page. Library titles never reach this handler.
+(function () {
+    if (window.__hssOpenCard) { return; }
+    window.__hssOpenCard = true;
+    window.addEventListener('click', function (ev) {
+        var card = ev.target && ev.target.closest ? ev.target.closest('.hss-open-card') : null;
+        if (!card || ev.target.closest('.discover-requestbutton')) { return; }
+        if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey) { return; }
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        if (card.getAttribute('data-hss-busy')) { return; }
+        var link = card.querySelector('a[href]');
+        var fallback = link ? link.href : null;
+        var type = card.getAttribute('data-media-type') === 'tv' ? 'tv' : 'movie';
+        var id = card.getAttribute('data-tmdb-id');
+        var done = function () { card.style.opacity = ''; card.removeAttribute('data-hss-busy'); };
+        var fall = function () { done(); if (fallback) { window.open(fallback, '_blank', 'noopener'); } };
+        card.setAttribute('data-hss-busy', '1');
+        card.style.opacity = '.6';
+        window.ApiClient.ajax({ url: window.ApiClient.getUrl('gelato/open/' + type + '/' + encodeURIComponent(id)), type: 'POST', dataType: 'json' })
+            .then(function (r) {
+                if (r && r.Id) {
+                    done();
+                    window.location.hash = '#/details?id=' + r.Id + '&serverId=' + window.ApiClient.serverId();
+                } else { fall(); }
+            }, fall);
+    }, true);
+})();
+
+// Client diagnostics (PluginConfiguration.ClientDiagnostics, off by default): a short trace of each home page build, sent to the
+// server log, for finding out what a device is doing when the home page stays blank.
+(function () {
+    if (window.HssDiag) { return; }
+    var BUILD = 'inject-3.0.5.19';
+    var t0 = performance.now();
+    var buf = [];
+    var enabled = false;
+    var ticks = 0;
+    var lastEv = {};
+
+    function stamp() { return Math.round(performance.now() - t0); }
+    function sections() {
+        return [].map.call(document.querySelectorAll('.homeSectionsContainer > .verticalSection'), function (s) {
+            var r = s.getBoundingClientRect();
+            var name = (s.className || '').split(' ').filter(function (c) { return c && c !== 'verticalSection' && c !== 'hide'; })[0] || '?';
+            return name + ':' + (s.getAttribute('data-hss-gate') === 'pending' ? 'P' : '') + (s.getAttribute('data-hss-fetched') === '1' ? 'F' : '') +
+                (s.classList.contains('hide') ? 'H' : '') + ':h' + Math.round(r.height) + ':c' + s.querySelectorAll('.card').length;
+        }).join(' ');
+    }
+
+    // What is on screen: the element on top at several heights, and how the first row and card are styled. Told apart from
+    // "the rows are not in the page" (the section list above) when the page looks blank on a device.
+
+    // Is the browser actually drawing frames? A black page whose elements are all present and drawable means drawing has stalled:
+    // animation frames stop arriving (they are tied to the screen refresh) and timers drift. Measured each tick and kept for the next snapshot.
+    var liveness = 'raf=? drift=?';
+    function measureLiveness() {
+        var t = performance.now();
+        var rafAt = -1;
+        var expected = t + 250;
+        if (window.requestAnimationFrame) { requestAnimationFrame(function () { rafAt = Math.round(performance.now() - t); }); }
+        setTimeout(function () {
+            var drift = Math.round(performance.now() - expected);
+            liveness = 'raf=' + (rafAt >= 0 ? rafAt + 'ms' : 'STALLED') + ' drift=' + drift + 'ms';
+        }, 250);
+    }
+    // Page animations (jellyfin-web fades pages in and out with them): a paused one, or one still at its start, keeps a page invisible.
+    function animations() {
+        try {
+            if (!document.getAnimations) { return 'n/a'; }
+            var list = document.getAnimations();
+            var shown = list.filter(function (a) { return a.playState !== 'finished'; }).slice(0, 6).map(function (a) {
+                var el = a.effect && a.effect.target;
+                var cls = el && typeof el.className === 'string' ? el.className.split(' ').slice(0, 2).join('.') : '';
+                return a.playState + '@' + Math.round(a.currentTime || 0) + ':' + (el ? el.tagName.toLowerCase() : '?') + '.' + cls;
+            });
+            return list.length + ' total [' + shown.join(', ') + ']';
+        } catch (e) { return 'err'; }
+    }
+    // the page's ancestors that are not plainly visible (opacity, transform, visibility, display)
+    function ancestors() {
+        try {
+            var out = [];
+            var e = document.querySelector('.homeSectionsContainer');
+            while (e && e !== document.documentElement) {
+                var cs = getComputedStyle(e);
+                if (cs.opacity !== '1' || cs.visibility !== 'visible' || cs.display === 'none' || (cs.transform && cs.transform !== 'none') || cs.contentVisibility === 'hidden') {
+                    var cls = typeof e.className === 'string' ? e.className.split(' ').slice(0, 2).join('.') : '';
+                    out.push(e.tagName.toLowerCase() + '.' + cls + ' o' + cs.opacity + ' v' + cs.visibility.charAt(0) + ' d' + cs.display + ' tr' + (cs.transform || '').slice(0, 24));
+                }
+                e = e.parentElement;
+            }
+            return out.length ? out.join(' < ') : 'plain';
+        } catch (e2) { return 'err'; }
+    }
+    function probe() {
+        try {
+            var out = [];
+            var w = window.innerWidth, h = window.innerHeight;
+            [0.2, 0.35, 0.5, 0.65, 0.8].forEach(function (f) {
+                var y = Math.round(h * f);
+                var el = document.elementFromPoint(w / 2, y);
+                if (!el) { out.push(y + ':none'); return; }
+                var cs = getComputedStyle(el);
+                var cls = typeof el.className === 'string' ? el.className.split(' ').slice(0, 3).join('.') : '';
+                out.push(y + ':' + el.tagName.toLowerCase() + '.' + cls + ' o' + cs.opacity + ' v' + cs.visibility.charAt(0) + ' bg' + cs.backgroundColor.replace(/ /g, ''));
+            });
+            var sec = document.querySelector('.homeSectionsContainer > .verticalSection:not(.hide)');
+            if (sec) {
+                var c = getComputedStyle(sec);
+                out.push('sec0 o' + c.opacity + ' v' + c.visibility + ' d' + c.display + ' tr' + c.transform + ' top' + Math.round(sec.getBoundingClientRect().top));
+            }
+            var card = document.querySelector('.homeSectionsContainer .card');
+            if (card) {
+                var r = card.getBoundingClientRect(), ci = card.querySelector('.cardImageContainer'), cc = ci ? getComputedStyle(ci) : null;
+                out.push('card0 ' + Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + 'x' + Math.round(r.height) +
+                    (ci ? ' ds' + (ci.getAttribute('data-src') ? 1 : 0) + ' cls' + ci.className.split(' ').filter(function (x) { return /lazy|fade/.test(x); }).join('/') + ' bi' + (cc.backgroundImage !== 'none' ? 1 : 0) + ' o' + cc.opacity : ''));
+            }
+            out.push('LIVE ' + liveness + ' anims ' + animations() + ' anc ' + ancestors());
+            out.push('scrollY' + Math.round(window.scrollY) + ' docH' + document.documentElement.scrollHeight + ' ih' + h + ' bodybg' + getComputedStyle(document.body).backgroundColor.replace(/ /g, ''));
+            return out.join(' | ');
+        } catch (e) { return 'probe-error ' + e; }
+    }
+    function flush() {
+        if (!enabled || buf.length === 0 || !window.ApiClient || !window.ApiClient.accessToken) { return; }
+        var lines = buf.splice(0, 60);
+        try {
+            window.ApiClient.ajax({ type: 'POST', url: window.ApiClient.getUrl('HomeScreen/ClientLog'), data: JSON.stringify({ Build: BUILD, Ua: navigator.userAgent, Events: lines }), contentType: 'application/json' }).catch(function () { });
+        } catch (e) { }
+    }
+
+    var diag = window.HssDiag = {
+        build: BUILD,
+        log: function (ev, data) {
+            if (buf.length < 300) { buf.push(stamp() + 'ms ' + ev + (data ? ' ' + (typeof data === 'string' ? data : JSON.stringify(data)) : '')); }
+        },
+        snapshot: function (tag) {
+            diag.log(tag, 'vis=' + document.visibilityState + ' hash=' + location.hash.slice(0, 18) + ' once=' + (window.HomeScreenSectionsGate ? '' : '') + ' secs=[' + sections() + '] PROBE ' + probe());
+        },
+        enable: function (on) { enabled = on === true; if (enabled) { diag.log('enabled', 'ua=' + navigator.userAgent.slice(0, 80)); } }
+    };
+
+    ['touchstart', 'scroll', 'pageshow', 'visibilitychange', 'hashchange', 'focus', 'pagehide'].forEach(function (name) {
+        window.addEventListener(name, function () {
+            if (!enabled) { return; }
+            var n = performance.now();
+            if (lastEv[name] && n - lastEv[name] < (name === 'scroll' || name === 'touchstart' ? 4000 : 0)) { return; }
+            lastEv[name] = n;
+            measureLiveness();
+            diag.snapshot('ev:' + name);
+            if (name === 'pagehide' || name === 'visibilitychange') { flush(); }
+        }, { passive: true, capture: true });
+    });
+
+    // while the home page is up and anything is still held or unfetched, note its state every 2 s (about a minute at most)
+    setInterval(function () {
+        if (!enabled || ticks > 30) { return; }
+        var container = document.querySelector('.homeSectionsContainer');
+        if (!container || container.offsetParent === null) { return; }
+        var open = container.querySelector('[data-hss-gate="pending"], .verticalSection:not([data-hss-fetched="1"])');
+        measureLiveness();
+        if (open) { ticks++; diag.snapshot('tick'); }
+    }, 2000);
+    setInterval(flush, 3000);
+})();

@@ -1,7 +1,8 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.Loader;
 using Jellyfin.Plugin.HomeScreenSections.Configuration;
+using Jellyfin.Plugin.HomeScreenSections.Helpers;
 using Jellyfin.Plugin.HomeScreenSections.HomeScreen.Sections;
 using Jellyfin.Plugin.HomeScreenSections.Library;
 using Jellyfin.Plugin.HomeScreenSections.Model;
@@ -56,8 +57,7 @@ namespace Jellyfin.Plugin.HomeScreenSections
                         
                         if (payload.ResultsEndpoint != null)
                         {
-                            string? publishedServerUrl = serverApplicationHost.GetType()
-                                .GetProperty("PublishedServerUrl", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(serverApplicationHost) as string;
+                            string? publishedServerUrl = ReflectionHelper.GetPublishedServerUrl(serverApplicationHost);
                     
                             HttpClient client = new HttpClient();
                             client.BaseAddress = new Uri(publishedServerUrl ?? $"http://localhost:{serverApplicationHost.HttpPort}");
